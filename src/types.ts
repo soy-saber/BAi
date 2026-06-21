@@ -18,7 +18,7 @@ export interface TextMessage {
 export interface ToolUseMessage {
   type: 'tool_use';
   agent: string;
-  /** Tool name as reported by the CLI (e.g. "Read", "Bash", "Edit"). */
+  /** Tool name as reported by the CLI (e.g. "Read", "Bash", "file_change"). */
   tool: string;
   /** Tool input, shape varies per tool — kept opaque on purpose. */
   input: unknown;
@@ -38,3 +38,25 @@ export interface ResultMessage {
 
 /** Anything the adapter emits as it processes a turn. */
 export type AgentMessage = TextMessage | ToolUseMessage | ResultMessage;
+
+/** Who authored a thread entry. */
+export type Role = 'user' | 'agent';
+
+/** One persisted turn in a thread's transcript. */
+export interface ThreadEntry {
+  role: Role;
+  /** Agent id when role === 'agent'; omitted for user entries. */
+  agent?: string;
+  text: string;
+  /** Epoch milliseconds. */
+  ts: number;
+}
+
+/** An isolated conversation / task workspace. */
+export interface Thread {
+  id: string;
+  title: string;
+  entries: ThreadEntry[];
+  createdAt: number;
+  updatedAt: number;
+}

@@ -34,7 +34,7 @@ Early development. Built in stages:
 - [x] **Stage 0** — Repo scaffold + tooling
 - [x] **Stage 1** — Single agent adapter (spawn Claude CLI, parse stream)
 - [x] **Stage 2** — Second agent (Codex/Gemini) behind one unified interface
-- [ ] **Stage 3** — Threads + @mention routing
+- [x] **Stage 3** — Threads + @mention routing
 - [ ] **Stage 4** — Persistent identity + shared memory
 - [ ] **Stage 5** — A2A messaging + cross-model review
 - [ ] **Stage 6** — Minimal web UI
@@ -46,16 +46,20 @@ Early development. Built in stages:
 
 npm install
 npm run build
-node dist/index.js claude "create a file called hello.txt containing: BAi works"
-node dist/index.js codex  "what files are in this directory?"
-# or during development:
-npm run dev -- claude "list the files in this directory"
+
+# Threaded, @mention-routed collaboration:
+node dist/index.js new "auth refactor"          # -> created thread a1b2c3d4
+node dist/index.js send a1b2c3d4 "@claude design the API, then @codex review it"
+node dist/index.js show a1b2c3d4                # print the transcript
+node dist/index.js threads                      # list threads
+
+npm test     # routing/store unit tests (fake adapters, no live CLI)
 ```
 
-BAi drives multiple agents behind one `AgentAdapter` interface. It spawns the
-chosen CLI, streams its native output (Claude `stream-json`, Codex `--json`),
-and prints every text / tool-use / result message in BAi's unified format. The
-agent actually performs the work (file edits, shell commands) in the current
+A message addresses agents with `@mentions`; mentions run in the order written,
+so "design then review" flows work. Each thread is an isolated context, stored
+as a plain JSON file under `data/threads/`. Every agent runs behind one
+`AgentAdapter` interface and actually performs the work in the current
 directory.
 
 ## Architecture

@@ -1,24 +1,25 @@
 /**
  * BAi — entry point.
  *
- * Stage 2: route a prompt to a chosen agent, both behind one AgentAdapter
- * interface. The two CLIs have completely different native output formats, yet
- * everything below prints in BAi's unified AgentMessage form.
+ * Stage 3: threaded, @mention-routed collaboration.
  *
- *   npm run build && node dist/index.js claude "list the files here"
- *   node dist/index.js codex "create a file hello.txt with: hi"
- *   npm run dev -- codex "what is in this directory?"
+ *   bai new "<title>"                 create a thread, prints its id
+ *   bai threads                       list threads
+ *   bai show <threadId>               print a thread transcript
+ *   bai send <threadId> "<message>"   route a message to @mentioned agents
+ *
+ * A message addresses agents with @mentions:
+ *   bai send <id> "@claude design the API, then @codex review it"
  */
 
-import type { AgentAdapter } from './adapters/adapter.js';
 import { claudeAdapter } from './adapters/claude.js';
 import { codexAdapter } from './adapters/codex.js';
+import type { AdapterRegistry } from './routing/orchestrator.js';
+import { Orchestrator } from './routing/orchestrator.js';
+import { ThreadStore } from './store/thread-store.js';
 import type { AgentMessage } from './types.js';
 
-const ADAPTERS: Record<string, AgentAdapter> = {
-  claude: claudeAdapter,
-  codex: codexAdapter,
-};
+const ADAPTERS: AdapterRegistry = { claude: claudeAdapter, codex: codexAdapter };
 
 function render(message: AgentMessage): void {
   switch (message.type) {
@@ -38,21 +39,56 @@ function render(message: AgentMessage): void {
   }
 }
 
+const USAGE = `Usage:
+  bai new "<title>"                 create a thread
+  bai threads                       list threads
+  bai show <threadId>               print a thread transcript
+  bai send <threadId> "<message>"   route to @mentioned agents (${Object.keys(ADAPTERS).join(', ')})`;
+
 async function main(): Promise<void> {
-  const [agentName, ...rest] = process.argv.slice(2);
-  const prompt = rest.join(' ').trim();
-  const adapter = agentName ? ADAPTERS[agentName] : undefined;
+  const [command, ...rest] = process.argv.slice(2);
+  const store = new ThreadStore();
 
-  if (!adapter || !prompt) {
-    console.error(`Usage: bai <${Object.keys(ADAPTERS).join('|')}> "<prompt>"`);
-    process.exitCode = 1;
-    return;
+  switch (command) {
+    case 'new': {
+      const thread = await store.create(rest.join(' ').trim() || 'untitled');
+      console.log(`created thread ${thread.id} — ${thread.title}`);
+      break;
+    }
+    case 'threads': {
+      const threads = await store.list();
+      if (threads.length === 0) console.log('(no threads yet)');
+      for (const t of threads) console.log(`${t.id}  ${t.title}  (${t.entries.length} entries)`);
+      break;
+    }
+    case 'show': {
+      const thread = await store.get(rest[0] ?? '');
+      if (!thread) return fail(`thread not found: ${rest[0]}`);
+      console.log(`# ${thread.title} (${thread.id})\n`);
+      for (const e of thread.entries) {
+        const who = e.role === 'user' ? 'you' : (e.agent ?? 'agent');
+        console.log(`[${who}] ${e.text}\n`);
+      }
+      break;
+    }
+    case 'send': {
+      const [threadId, ...words] = rest;
+      const message = words.join(' ').trim();
+      if (!threadId || !message) return fail(USAGE);
+      const orch = new Orchestrator(store, ADAPTERS);
+      console.log(`> ${message}`);
+      const result = await orch.dispatch(threadId, message, render);
+      if (result.noMatch) console.log('(no known @mention — nothing dispatched)');
+      break;
+    }
+    default:
+      return fail(USAGE);
   }
+}
 
-  console.log(`> [${adapter.name}] ${prompt}`);
-  for await (const message of adapter.run(prompt)) {
-    render(message);
-  }
+function fail(msg: string): void {
+  console.error(msg);
+  process.exitCode = 1;
 }
 
 main().catch((err) => {

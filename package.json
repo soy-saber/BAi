@@ -12,6 +12,7 @@
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
+    "test": "node --import tsx --test test/*.test.ts",
     "lint": "tsc --noEmit",
     "check": "biome check .",
     "check:fix": "biome check --write ."
