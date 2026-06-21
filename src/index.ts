@@ -46,7 +46,8 @@ const USAGE = `Usage:
   bai show <threadId>               print a thread transcript
   bai send <threadId> "<message>"   route to @mentioned agents (${Object.keys(ADAPTERS).join(', ')})
   bai remember <decision|lesson> <agent> "<text>"   record team memory
-  bai memory ["<query>"]            recall memory (most recent if no query)`;
+  bai memory ["<query>"]            recall memory (most recent if no query)
+  bai serve [port]                  start the web UI (default http://localhost:3003)`;
 
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
@@ -99,6 +100,12 @@ async function main(): Promise<void> {
       const memories = await new MemoryStore().recall(query);
       if (memories.length === 0) console.log('(no matching memory)');
       for (const m of memories) console.log(`${m.id}  (${m.kind}/${m.agent})  ${m.text}`);
+      break;
+    }
+    case 'serve': {
+      const port = Number(rest[0]) || 3003;
+      const { startServer } = await import('./server/server.js');
+      startServer(port);
       break;
     }
     default:

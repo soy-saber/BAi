@@ -1,0 +1,122 @@
+/**
+ * Minimal HTTP server for the BAi web UI.
+ *
+ * Deliberately dependency-free: Node's built-in `http` module, a tiny JSON API,
+ * and one static HTML page. The UI is a thin shell over the same Orchestrator
+ * and stores the CLI uses — all the real logic lives below this layer.
+ *
+ * SECURITY: this binds to localhost and has no authentication. It can spawn
+ * agent CLIs that edit files and run commands in the working directory. Do not
+ * expose it on a public interface.
+ *
+ * Endpoints:
+ *   GET  /                      -> the chat page
+ *   GET  /api/threads           -> list threads
+ *   POST /api/threads           -> { title } create a thread
+ *   GET  /api/threads/:id       -> one thread (with entries)
+ *   POST /api/threads/:id/send  -> { message } route to @mentioned agents
+ */
+
+import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { claudeAdapter } from '../adapters/claude.js';
+import { codexAdapter } from '../adapters/codex.js';
+import { type AdapterRegistry, Orchestrator } from '../routing/orchestrator.js';
+import { MemoryStore } from '../store/memory-store.js';
+import { ThreadStore } from '../store/thread-store.js';
+
+const ADAPTERS: AdapterRegistry = { claude: claudeAdapter, codex: codexAdapter };
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+async function readJson(
+  req: import('node:http').IncomingMessage,
+): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  if (chunks.length === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function send(res: import('node:http').ServerResponse, status: number, body: unknown): void {
+  const json = JSON.stringify(body);
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(json);
+}
+
+export function startServer(port = 3003): import('node:http').Server {
+  const store = new ThreadStore();
+  const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
+
+  const server = createServer(async (req, res) => {
+    try {
+      await route(req, res, store, orch);
+    } catch (err) {
+      send(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`BAi UI on http://localhost:${port}`);
+  });
+  return server;
+}
+
+async function route(
+  req: import('node:http').IncomingMessage,
+  res: import('node:http').ServerResponse,
+  store: ThreadStore,
+  orch: Orchestrator,
+): Promise<void> {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const path = url.pathname;
+  const method = req.method ?? 'GET';
+
+  if (method === 'GET' && path === '/') {
+    const html = await readFile(join(HERE, 'index.html'), 'utf8');
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  if (method === 'GET' && path === '/app.js') {
+    const js = await readFile(join(HERE, 'app.js'), 'utf8');
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+    res.end(js);
+    return;
+  }
+
+  if (method === 'GET' && path === '/api/threads') {
+    return send(res, 200, await store.list());
+  }
+
+  if (method === 'POST' && path === '/api/threads') {
+    const { title } = await readJson(req);
+    const thread = await store.create(typeof title === 'string' && title ? title : 'untitled');
+    return send(res, 201, thread);
+  }
+
+  const showMatch = path.match(/^\/api\/threads\/([^/]+)$/);
+  if (method === 'GET' && showMatch) {
+    const thread = await store.get(showMatch[1] ?? '');
+    return thread ? send(res, 200, thread) : send(res, 404, { error: 'not found' });
+  }
+
+  const sendMatch = path.match(/^\/api\/threads\/([^/]+)\/send$/);
+  if (method === 'POST' && sendMatch) {
+    const { message } = await readJson(req);
+    if (typeof message !== 'string' || !message.trim()) {
+      return send(res, 400, { error: 'message required' });
+    }
+    const result = await orch.dispatch(sendMatch[1] ?? '', message.trim());
+    const thread = await store.get(sendMatch[1] ?? '');
+    return send(res, 200, { result, thread });
+  }
+
+  send(res, 404, { error: 'not found' });
+}

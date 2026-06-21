@@ -29,7 +29,8 @@ logos, or character designs.
 
 ## Status
 
-Early development. Built in stages:
+A working end-to-end multi-agent platform, built in stages (each is one commit
+with its own decision record in [`docs/decisions/`](docs/decisions/)):
 
 - [x] **Stage 0** — Repo scaffold + tooling
 - [x] **Stage 1** — Single agent adapter (spawn Claude CLI, parse stream)
@@ -37,7 +38,7 @@ Early development. Built in stages:
 - [x] **Stage 3** — Threads + @mention routing
 - [x] **Stage 4** — Persistent identity + shared memory
 - [x] **Stage 5** — A2A messaging + cross-model review
-- [ ] **Stage 6** — Minimal web UI
+- [x] **Stage 6** — Minimal web UI
 
 ## Quick Start
 
@@ -53,8 +54,15 @@ node dist/index.js send a1b2c3d4 "@claude design the API, then @codex review it"
 node dist/index.js show a1b2c3d4                # print the transcript
 node dist/index.js threads                      # list threads
 
-npm test     # routing/store unit tests (fake adapters, no live CLI)
+npm test     # routing/store/identity/A2A unit tests (fake adapters, no live CLI)
+
+# Or use the web UI:
+node dist/index.js serve     # http://localhost:3003
 ```
+
+> The web UI binds to localhost and has **no authentication**; it can spawn
+> agents that edit files and run commands in the working directory. Keep it
+> local.
 
 A message addresses agents with `@mentions`; mentions run in the order written,
 so "design then review" flows work. Each thread is an isolated context, stored
