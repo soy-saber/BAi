@@ -31,8 +31,8 @@ logos, or character designs.
 
 Early development. Built in stages:
 
-- [ ] **Stage 0** — Repo scaffold + tooling
-- [ ] **Stage 1** — Single agent adapter (spawn Claude CLI, parse stream)
+- [x] **Stage 0** — Repo scaffold + tooling
+- [x] **Stage 1** — Single agent adapter (spawn Claude CLI, parse stream)
 - [ ] **Stage 2** — Second agent (Codex/Gemini) behind one unified interface
 - [ ] **Stage 3** — Threads + @mention routing
 - [ ] **Stage 4** — Persistent identity + shared memory
@@ -42,12 +42,19 @@ Early development. Built in stages:
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js 20+, and at least one agent CLI installed (e.g. `claude`)
+# Prerequisites: Node.js 20+, and the `claude` CLI installed and logged in
 
 npm install
 npm run build
-npm start
+node dist/index.js "create a file called hello.txt containing: BAi works"
+# or during development:
+npm run dev -- "list the files in this directory"
 ```
+
+Stage 1 drives a single agent: it spawns the `claude` CLI, streams its
+`stream-json` output, and prints every text / tool-use / result message in
+BAi's unified format. The agent actually performs the work (file edits, shell
+commands) in the current directory.
 
 ## Architecture
 
