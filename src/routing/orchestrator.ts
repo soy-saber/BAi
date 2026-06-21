@@ -10,6 +10,9 @@
  */
 
 import type { AgentAdapter, RunOptions } from '../adapters/adapter.js';
+import { composePrompt } from '../identity/compose.js';
+import { IDENTITIES } from '../identity/identity.js';
+import type { MemoryStore } from '../store/memory-store.js';
 import type { ThreadStore } from '../store/thread-store.js';
 import type { AgentMessage } from '../types.js';
 import { parseMentions } from './mentions.js';
@@ -31,6 +34,7 @@ export class Orchestrator {
     private readonly store: ThreadStore,
     private readonly adapters: AdapterRegistry,
     private readonly runOptions: RunOptions = {},
+    private readonly memory?: MemoryStore,
   ) {}
 
   /** Collapse an agent's message stream into one transcript text + success flag. */
@@ -68,7 +72,11 @@ export class Orchestrator {
     for (const name of agents) {
       const adapter = this.adapters[name];
       if (!adapter) continue;
-      const { text } = await this.consume(adapter, message, onMessage);
+      // Re-establish identity + constraints + relevant memory every turn, so
+      // they survive across sessions and context compaction.
+      const memories = this.memory ? await this.memory.recall(message) : [];
+      const prompt = composePrompt(IDENTITIES[name], memories, message);
+      const { text } = await this.consume(adapter, prompt, onMessage);
       await this.store.append(threadId, {
         role: 'agent',
         agent: name,
