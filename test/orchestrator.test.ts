@@ -84,3 +84,52 @@ test('records the user message but runs nothing when no agent is mentioned', asy
     assert.equal(saved?.entries[0]?.role, 'user');
   });
 });
+
+test('A2A: an agent handoff runs the mentioned agent automatically', async () => {
+  await withStore(async (store) => {
+    const adapters = {
+      // claude finishes and hands off to codex inside its output
+      claude: fakeAdapter('claude', [
+        { type: 'text', agent: 'claude', text: 'wrote the parser. @codex please review.' },
+        { type: 'result', agent: 'claude', ok: true },
+      ]),
+      codex: fakeAdapter('codex', [
+        { type: 'text', agent: 'codex', text: 'reviewed: looks correct' },
+        { type: 'result', agent: 'codex', ok: true },
+      ]),
+    };
+    const orch = new Orchestrator(store, adapters);
+    const thread = await store.create('test');
+
+    // Human only mentions claude; codex runs via handoff.
+    const result = await orch.dispatch(thread.id, '@claude build a parser');
+    assert.deepEqual(result.ran, ['claude', 'codex']);
+
+    const saved = await store.get(thread.id);
+    assert.equal(saved?.entries.length, 3); // user + claude + codex
+    assert.equal(saved?.entries[2]?.agent, 'codex');
+    assert.match(saved?.entries[2]?.text ?? '', /reviewed/);
+  });
+});
+
+test('A2A: the hop cap stops a two-agent @-loop', async () => {
+  await withStore(async (store) => {
+    // Each agent always pings the other — without a cap this never ends.
+    const adapters = {
+      claude: fakeAdapter('claude', [
+        { type: 'text', agent: 'claude', text: 'ping @codex' },
+        { type: 'result', agent: 'claude', ok: true },
+      ]),
+      codex: fakeAdapter('codex', [
+        { type: 'text', agent: 'codex', text: 'ping @claude' },
+        { type: 'result', agent: 'codex', ok: true },
+      ]),
+    };
+    const orch = new Orchestrator(store, adapters, { maxHops: 3 });
+    const thread = await store.create('test');
+
+    const result = await orch.dispatch(thread.id, '@claude start');
+    // hop0 claude, hop1 codex, hop2 claude, hop3 codex — then stop.
+    assert.deepEqual(result.ran, ['claude', 'codex', 'claude', 'codex']);
+  });
+});

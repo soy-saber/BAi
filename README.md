@@ -36,7 +36,7 @@ Early development. Built in stages:
 - [x] **Stage 2** — Second agent (Codex/Gemini) behind one unified interface
 - [x] **Stage 3** — Threads + @mention routing
 - [x] **Stage 4** — Persistent identity + shared memory
-- [ ] **Stage 5** — A2A messaging + cross-model review
+- [x] **Stage 5** — A2A messaging + cross-model review
 - [ ] **Stage 6** — Minimal web UI
 
 ## Quick Start

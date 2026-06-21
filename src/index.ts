@@ -78,7 +78,7 @@ async function main(): Promise<void> {
       const [threadId, ...words] = rest;
       const message = words.join(' ').trim();
       if (!threadId || !message) return fail(USAGE);
-      const orch = new Orchestrator(store, ADAPTERS, {}, new MemoryStore());
+      const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
       console.log(`> ${message}`);
       const result = await orch.dispatch(threadId, message, render);
       if (result.noMatch) console.log('(no known @mention — nothing dispatched)');
