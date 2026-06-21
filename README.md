@@ -33,7 +33,7 @@ Early development. Built in stages:
 
 - [x] **Stage 0** — Repo scaffold + tooling
 - [x] **Stage 1** — Single agent adapter (spawn Claude CLI, parse stream)
-- [ ] **Stage 2** — Second agent (Codex/Gemini) behind one unified interface
+- [x] **Stage 2** — Second agent (Codex/Gemini) behind one unified interface
 - [ ] **Stage 3** — Threads + @mention routing
 - [ ] **Stage 4** — Persistent identity + shared memory
 - [ ] **Stage 5** — A2A messaging + cross-model review
@@ -42,19 +42,21 @@ Early development. Built in stages:
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js 20+, and the `claude` CLI installed and logged in
+# Prerequisites: Node.js 20+, and the `claude` and/or `codex` CLI installed and logged in
 
 npm install
 npm run build
-node dist/index.js "create a file called hello.txt containing: BAi works"
+node dist/index.js claude "create a file called hello.txt containing: BAi works"
+node dist/index.js codex  "what files are in this directory?"
 # or during development:
-npm run dev -- "list the files in this directory"
+npm run dev -- claude "list the files in this directory"
 ```
 
-Stage 1 drives a single agent: it spawns the `claude` CLI, streams its
-`stream-json` output, and prints every text / tool-use / result message in
-BAi's unified format. The agent actually performs the work (file edits, shell
-commands) in the current directory.
+BAi drives multiple agents behind one `AgentAdapter` interface. It spawns the
+chosen CLI, streams its native output (Claude `stream-json`, Codex `--json`),
+and prints every text / tool-use / result message in BAi's unified format. The
+agent actually performs the work (file edits, shell commands) in the current
+directory.
 
 ## Architecture
 
