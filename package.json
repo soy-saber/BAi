@@ -1,0 +1,25 @@
+{
+  "name": "bai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A multi-agent collaboration platform — make different AI agents work together as a team.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "check": "biome check .",
+    "check:fix": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.1",
+    "@types/node": "^20.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.3.3"
+  }
+}
