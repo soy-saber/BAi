@@ -23,18 +23,12 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { claudeAdapter } from '../adapters/claude.js';
-import { codexAdapter } from '../adapters/codex.js';
-import { opencodeAdapter } from '../adapters/opencode.js';
-import { type AdapterRegistry, Orchestrator } from '../routing/orchestrator.js';
+import { buildRegistry } from '../adapters/registry.js';
+import { Orchestrator } from '../routing/orchestrator.js';
 import { MemoryStore } from '../store/memory-store.js';
 import { ThreadStore } from '../store/thread-store.js';
 
-const ADAPTERS: AdapterRegistry = {
-  claude: claudeAdapter,
-  codex: codexAdapter,
-  opencode: opencodeAdapter,
-};
+const ADAPTERS = buildRegistry();
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 async function readJson(

@@ -12,19 +12,13 @@
  *   bai send <id> "@claude design the API, then @codex review it"
  */
 
-import { claudeAdapter } from './adapters/claude.js';
-import { codexAdapter } from './adapters/codex.js';
-import { opencodeAdapter } from './adapters/opencode.js';
-import type { AdapterRegistry, DispatchEvent } from './routing/orchestrator.js';
+import { buildRegistry } from './adapters/registry.js';
+import type { DispatchEvent } from './routing/orchestrator.js';
 import { Orchestrator } from './routing/orchestrator.js';
 import { type MemoryKind, MemoryStore } from './store/memory-store.js';
 import { ThreadStore } from './store/thread-store.js';
 
-const ADAPTERS: AdapterRegistry = {
-  claude: claudeAdapter,
-  codex: codexAdapter,
-  opencode: opencodeAdapter,
-};
+const ADAPTERS = buildRegistry();
 
 /** Render a dispatch lifecycle event to the terminal in real time. */
 function render(event: DispatchEvent): void {
