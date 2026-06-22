@@ -50,6 +50,13 @@
         background: var(--panel); border: 1px solid var(--border);
         border-radius: 8px; padding: 12px; font: inherit;
       }
+      .entry.failed pre { border-color: #f85149; }
+      /* blinking caret while a bubble is still streaming */
+      .entry.live pre::after {
+        content: '▋'; color: var(--accent); margin-left: 1px;
+        animation: blink 1s step-start infinite;
+      }
+      @keyframes blink { 50% { opacity: 0; } }
       form { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--border); }
       input {
         flex: 1; background: var(--panel); border: 1px solid var(--border);

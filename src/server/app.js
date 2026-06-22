@@ -84,6 +84,22 @@ function addEntry(role, who, text) {
   return div;
 }
 
+// Create a "live" agent bubble whose text grows as stream chunks arrive.
+// Returns the <pre> element so the caller can append to it. We use textContent
+// for appended chunks so streamed agent output can never inject markup.
+function addLiveEntry(who) {
+  const div = document.createElement('div');
+  div.className = 'entry agent live';
+  const head = document.createElement('div');
+  head.className = 'who';
+  head.textContent = who;
+  const pre = document.createElement('pre');
+  div.append(head, pre);
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  return { wrapper: div, pre };
+}
+
 // Render one dispatch lifecycle event into the live log.
 function handleEvent(ev, state) {
   switch (ev.kind) {
@@ -95,7 +111,20 @@ function handleEvent(ev, state) {
       break;
     case 'message': {
       const m = ev.message;
-      if (m.type === 'tool_use') {
+      if (m.type === 'text') {
+        // First text chunk: drop the "working" status, open a live bubble.
+        if (!state.liveByAgent[ev.agent]) {
+          const s = state.statusByAgent[ev.agent];
+          if (s) {
+            s.remove();
+            state.statusByAgent[ev.agent] = null;
+          }
+          state.liveByAgent[ev.agent] = addLiveEntry(ev.agent);
+        }
+        const live = state.liveByAgent[ev.agent];
+        live.pre.textContent += m.text;
+        logEl.scrollTop = logEl.scrollHeight;
+      } else if (m.type === 'tool_use') {
         addStatus(`${ev.agent} → ${m.tool}`, 'tool');
       } else if (m.type === 'result' && !m.ok) {
         addStatus(`${ev.agent} error: ${m.error || 'failed'}`, 'error');
@@ -105,10 +134,16 @@ function handleEvent(ev, state) {
     case 'agent_end': {
       const s = state.statusByAgent[ev.agent];
       if (s) s.remove();
-      if (ev.ok) {
-        addEntry('agent', ev.agent, ev.text);
+      state.statusByAgent[ev.agent] = null;
+      const live = state.liveByAgent[ev.agent];
+      if (live) {
+        // Finalize the streamed bubble in place.
+        live.wrapper.classList.remove('live');
+        if (!ev.ok) live.wrapper.classList.add('failed');
+        state.liveByAgent[ev.agent] = null;
       } else {
-        addEntry('agent failed', ev.agent, ev.text);
+        // No text streamed (e.g. failed before output) — show the final text.
+        addEntry(ev.ok ? 'agent' : 'agent failed', ev.agent, ev.text);
       }
       break;
     }
@@ -128,7 +163,7 @@ $('#composer').onsubmit = async (ev) => {
   setComposerEnabled(false);
   addEntry('user', 'you', message);
 
-  const state = { statusByAgent: {} };
+  const state = { statusByAgent: {}, liveByAgent: {} };
   try {
     const res = await fetch(`/api/threads/${activeId}/stream`, {
       method: 'POST',
