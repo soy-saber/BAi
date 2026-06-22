@@ -14,28 +14,41 @@
 
 import { claudeAdapter } from './adapters/claude.js';
 import { codexAdapter } from './adapters/codex.js';
-import type { AdapterRegistry } from './routing/orchestrator.js';
+import { opencodeAdapter } from './adapters/opencode.js';
+import type { AdapterRegistry, DispatchEvent } from './routing/orchestrator.js';
 import { Orchestrator } from './routing/orchestrator.js';
 import { type MemoryKind, MemoryStore } from './store/memory-store.js';
 import { ThreadStore } from './store/thread-store.js';
-import type { AgentMessage } from './types.js';
 
-const ADAPTERS: AdapterRegistry = { claude: claudeAdapter, codex: codexAdapter };
+const ADAPTERS: AdapterRegistry = {
+  claude: claudeAdapter,
+  codex: codexAdapter,
+  opencode: opencodeAdapter,
+};
 
-function render(message: AgentMessage): void {
-  switch (message.type) {
-    case 'text':
-      console.log(`\n[${message.agent}] ${message.text}`);
+/** Render a dispatch lifecycle event to the terminal in real time. */
+function render(event: DispatchEvent): void {
+  switch (event.kind) {
+    case 'agent_start':
+      console.log(`\n[${event.agent}] …working (hop ${event.hop})`);
       break;
-    case 'tool_use':
-      console.log(`  ↳ (${message.agent}) tool: ${message.tool} ${JSON.stringify(message.input)}`);
-      break;
-    case 'result':
-      if (message.ok) {
-        console.log(`\n[${message.agent}] ✓ done${message.text ? `: ${message.text}` : ''}`);
-      } else {
-        console.error(`\n[${message.agent}] ✗ failed: ${message.error ?? 'unknown error'}`);
+    case 'message': {
+      const m = event.message;
+      if (m.type === 'text') {
+        console.log(`[${m.agent}] ${m.text}`);
+      } else if (m.type === 'tool_use') {
+        console.log(`  ↳ (${m.agent}) tool: ${m.tool} ${JSON.stringify(m.input)}`);
+      } else if (m.type === 'result' && !m.ok) {
+        console.error(`  ↳ (${m.agent}) error: ${m.error ?? 'unknown'}`);
       }
+      break;
+    }
+    case 'agent_end':
+      if (event.ok) console.log(`[${event.agent}] ✓ done`);
+      else console.error(`[${event.agent}] ✗ failed`);
+      break;
+    case 'done':
+      if (event.noMatch) console.log('(no known @mention — nothing dispatched)');
       break;
   }
 }

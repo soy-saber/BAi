@@ -71,8 +71,22 @@ export async function* runCli(
     shell: IS_WIN,
   });
 
-  child.stdin.write(prompt);
-  child.stdin.end();
+  // A missing or unspawnable binary emits 'error' (e.g. ENOENT) instead of
+  // streaming output. Capture it so the turn fails cleanly with a clear message
+  // rather than hanging or throwing — this is the "CLI isn't installed / can't
+  // connect" case surfacing as a normal terminal result.
+  let spawnError: Error | undefined;
+  child.on('error', (err) => {
+    spawnError = err;
+  });
+
+  // Writing to stdin of a process that failed to spawn throws EPIPE; guard it.
+  try {
+    child.stdin.write(prompt);
+    child.stdin.end();
+  } catch {
+    // ignore — the 'error'/'close' path reports the real failure
+  }
 
   let stderr = '';
   child.stderr.on('data', (chunk: Buffer) => {
@@ -105,13 +119,11 @@ export async function* runCli(
 
   // Guarantee callers always get a terminal message.
   if (!sawResult) {
-    yield {
-      type: 'result',
-      agent: spec.name,
-      ok: false,
-      error: `${spec.bin} exited (code ${exitCode}) without a result${
-        stderr ? `: ${stderr.trim()}` : ''
-      }`,
-    };
+    const reason = spawnError
+      ? `could not start '${spec.bin}': ${spawnError.message}`
+      : `${spec.bin} exited (code ${exitCode}) without a result${
+          stderr ? `: ${stderr.trim()}` : ''
+        }`;
+    yield { type: 'result', agent: spec.name, ok: false, error: reason };
   }
 }

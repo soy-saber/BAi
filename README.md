@@ -39,6 +39,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 4** — Persistent identity + shared memory
 - [x] **Stage 5** — A2A messaging + cross-model review
 - [x] **Stage 6** — Minimal web UI
+- [x] **Stage 7** — Third adapter (opencode) + live streaming status in the UI
 
 ## Quick Start
 
@@ -63,6 +64,24 @@ node dist/index.js serve     # http://localhost:3003
 > The web UI binds to localhost and has **no authentication**; it can spawn
 > agents that edit files and run commands in the working directory. Keep it
 > local.
+
+The web UI streams live status while agents work — which agent is running, its
+tool calls, and whether it succeeded or failed to connect — instead of waiting
+for the whole turn to finish.
+
+## Supported agents
+
+Each agent is one `CliSpec` over a shared spawn/parse runner; adding another is
+just another spec.
+
+| Agent | CLI | Notes |
+|-------|-----|-------|
+| Claude | `claude` | `--permission-mode` / bypass mapping |
+| Codex | `codex` | `--sandbox` mode mapping |
+| opencode | `opencode` | set `OPENCODE_MODEL`, e.g. `opencode-go/deepseek-v4-flash` |
+
+Provider API keys and `OPENCODE_MODEL` are read from the environment and never
+written to disk. Mention an agent by name: `@claude`, `@codex`, `@opencode`.
 
 A message addresses agents with `@mentions`; mentions run in the order written,
 so "design then review" flows work. Each thread is an isolated context, stored

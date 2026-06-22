@@ -20,8 +20,19 @@ import { parseMentions } from './mentions.js';
 
 export type AdapterRegistry = Record<string, AgentAdapter>;
 
-/** Reported as each agent's stream is consumed. */
-export type OnMessage = (message: AgentMessage) => void;
+/**
+ * Lifecycle events emitted during a dispatch, so a UI can show real-time
+ * status — which agent is working, its streaming output, and whether it
+ * succeeded or failed (including "never connected").
+ */
+export type DispatchEvent =
+  | { kind: 'agent_start'; agent: string; hop: number }
+  | { kind: 'message'; agent: string; message: AgentMessage }
+  | { kind: 'agent_end'; agent: string; ok: boolean; text: string }
+  | { kind: 'done'; ran: string[]; noMatch: boolean };
+
+/** Reported for every lifecycle event during dispatch. */
+export type OnEvent = (event: DispatchEvent) => void;
 
 export interface DispatchResult {
   /** Agents that were actually run, in order (includes A2A handoffs). */
@@ -56,12 +67,12 @@ export class Orchestrator {
   private async consume(
     adapter: AgentAdapter,
     prompt: string,
-    onMessage?: OnMessage,
+    onEvent?: OnEvent,
   ): Promise<{ text: string; ok: boolean }> {
     const parts: string[] = [];
     let ok = true;
     for await (const message of adapter.run(prompt, this.runOptions)) {
-      onMessage?.(message);
+      onEvent?.({ kind: 'message', agent: adapter.name, message });
       if (message.type === 'text') {
         parts.push(message.text);
       } else if (message.type === 'tool_use') {
@@ -80,32 +91,34 @@ export class Orchestrator {
     name: string,
     recallKey: string,
     prompt: string,
-    onMessage?: OnMessage,
-  ): Promise<string> {
+    hop: number,
+    onEvent?: OnEvent,
+  ): Promise<{ text: string; ok: boolean }> {
     const adapter = this.adapters[name];
-    if (!adapter) return '';
+    if (!adapter) return { text: '', ok: false };
+    onEvent?.({ kind: 'agent_start', agent: name, hop });
     const memories = this.memory ? await this.memory.recall(recallKey) : [];
     const composed = composePrompt(IDENTITIES[name], memories, prompt);
-    const { text } = await this.consume(adapter, composed, onMessage);
+    const { text, ok } = await this.consume(adapter, composed, onEvent);
     await this.store.append(threadId, {
       role: 'agent',
       agent: name,
       text: text || '(no output)',
       ts: Date.now(),
     });
-    return text;
+    onEvent?.({ kind: 'agent_end', agent: name, ok, text: text || '(no output)' });
+    return { text, ok };
   }
 
-  async dispatch(
-    threadId: string,
-    message: string,
-    onMessage?: OnMessage,
-  ): Promise<DispatchResult> {
+  async dispatch(threadId: string, message: string, onEvent?: OnEvent): Promise<DispatchResult> {
     const known = Object.keys(this.adapters);
     const { agents } = parseMentions(message, known);
     await this.store.append(threadId, { role: 'user', text: message, ts: Date.now() });
 
-    if (agents.length === 0) return { ran: [], noMatch: true };
+    if (agents.length === 0) {
+      onEvent?.({ kind: 'done', ran: [], noMatch: true });
+      return { ran: [], noMatch: true };
+    }
 
     const ran: string[] = [];
     // Seed the queue with the human turn's mentions (hop 0), then drain it.
@@ -117,7 +130,14 @@ export class Orchestrator {
       if (!this.adapters[handoff.to]) continue;
 
       const prompt = handoff.from === 'user' ? message : handoffPrompt(handoff, message);
-      const output = await this.runTurn(threadId, handoff.to, message, prompt, onMessage);
+      const { text: output } = await this.runTurn(
+        threadId,
+        handoff.to,
+        message,
+        prompt,
+        handoff.hop,
+        onEvent,
+      );
       ran.push(handoff.to);
 
       // An agent can hand off to others by @mentioning them — until the hop cap.
@@ -125,6 +145,7 @@ export class Orchestrator {
         queue.push(...detectHandoffs(handoff.to, output, known, handoff.hop));
       }
     }
+    onEvent?.({ kind: 'done', ran, noMatch: false });
     return { ran, noMatch: false };
   }
 }

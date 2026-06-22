@@ -15,6 +15,8 @@
  *   POST /api/threads           -> { title } create a thread
  *   GET  /api/threads/:id       -> one thread (with entries)
  *   POST /api/threads/:id/send  -> { message } route to @mentioned agents
+ *   POST /api/threads/:id/stream-> { message } same, but streams live
+ *                                  dispatch events as newline-delimited JSON
  */
 
 import { readFile } from 'node:fs/promises';
@@ -23,11 +25,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claudeAdapter } from '../adapters/claude.js';
 import { codexAdapter } from '../adapters/codex.js';
+import { opencodeAdapter } from '../adapters/opencode.js';
 import { type AdapterRegistry, Orchestrator } from '../routing/orchestrator.js';
 import { MemoryStore } from '../store/memory-store.js';
 import { ThreadStore } from '../store/thread-store.js';
 
-const ADAPTERS: AdapterRegistry = { claude: claudeAdapter, codex: codexAdapter };
+const ADAPTERS: AdapterRegistry = {
+  claude: claudeAdapter,
+  codex: codexAdapter,
+  opencode: opencodeAdapter,
+};
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 async function readJson(
@@ -116,6 +123,26 @@ async function route(
     const result = await orch.dispatch(sendMatch[1] ?? '', message.trim());
     const thread = await store.get(sendMatch[1] ?? '');
     return send(res, 200, { result, thread });
+  }
+
+  const streamMatch = path.match(/^\/api\/threads\/([^/]+)\/stream$/);
+  if (method === 'POST' && streamMatch) {
+    const { message } = await readJson(req);
+    if (typeof message !== 'string' || !message.trim()) {
+      return send(res, 400, { error: 'message required' });
+    }
+    // Newline-delimited JSON: one dispatch event per line, flushed as it
+    // happens, so the browser sees "agent working / streaming / done / failed"
+    // in real time instead of waiting for the whole turn to finish.
+    res.writeHead(200, {
+      'content-type': 'application/x-ndjson; charset=utf-8',
+      'cache-control': 'no-cache',
+    });
+    await orch.dispatch(streamMatch[1] ?? '', message.trim(), (event) => {
+      res.write(`${JSON.stringify(event)}\n`);
+    });
+    res.end();
+    return;
   }
 
   send(res, 404, { error: 'not found' });

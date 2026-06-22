@@ -57,12 +57,26 @@
       }
       .hint { color: var(--muted); padding: 0 24px 12px; font-size: 12px; }
       .empty { color: var(--muted); padding: 24px; }
+      /* live status line shown while an agent is working */
+      .status {
+        display: flex; align-items: center; gap: 8px; max-width: 760px;
+        margin-bottom: 18px; color: var(--muted); font-size: 13px;
+      }
+      .status .dot {
+        width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+        animation: pulse 1s ease-in-out infinite;
+      }
+      .status.ok .dot { background: #3fb950; animation: none; }
+      .status.fail .dot { background: #f85149; animation: none; }
+      .status.fail { color: #f85149; }
+      .status .tool { color: var(--accent); font-family: ui-monospace, monospace; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     </style>
   </head>
   <body>
     <aside>
       <h1>B<span>Ai</span></h1>
-      <button id="newThread">+ New thread</button>
+      <button type="button" id="newThread">+ New thread</button>
       <div id="threads"></div>
     </aside>
     <main>
