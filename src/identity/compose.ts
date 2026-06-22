@@ -12,6 +12,12 @@ import { type Memory, memoryBlock } from '../store/memory-store.js';
 import { type Identity, identityBlock } from './identity.js';
 import { ironLawsBlock } from './iron-laws.js';
 
+/** Tells agents how to tag takeaways so they get saved to shared memory. */
+const MEMORY_HINT =
+  '## Recording memory\nIf this turn produces a durable takeaway, end a line with ' +
+  '`DECISION: <choice + why>` or `LESSON: <what you learned>`. These are saved to ' +
+  'the team memory and surfaced in future turns. Only tag things worth keeping.';
+
 export function composePrompt(
   identity: Identity | undefined,
   memories: Memory[],
@@ -22,6 +28,7 @@ export function composePrompt(
   blocks.push(ironLawsBlock());
   const mem = memoryBlock(memories);
   if (mem) blocks.push(mem);
+  blocks.push(MEMORY_HINT);
   blocks.push(`## Message\n${message}`);
   return blocks.join('\n\n');
 }

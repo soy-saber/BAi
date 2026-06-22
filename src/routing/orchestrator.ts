@@ -12,6 +12,7 @@
 import type { AgentAdapter, RunOptions } from '../adapters/adapter.js';
 import { composePrompt } from '../identity/compose.js';
 import { IDENTITIES } from '../identity/identity.js';
+import { extractMemories } from '../identity/memory-extract.js';
 import type { MemoryStore } from '../store/memory-store.js';
 import type { ThreadStore } from '../store/thread-store.js';
 import type { AgentMessage } from '../types.js';
@@ -109,6 +110,13 @@ export class Orchestrator {
       text: text || '(no output)',
       ts: Date.now(),
     });
+    // Sediment any decisions/lessons from a successful turn into shared memory,
+    // so a later turn's recall can surface them (the write side of recall).
+    if (ok && this.memory && text) {
+      for (const m of extractMemories(text)) {
+        await this.memory.record(m.kind, name, m.text);
+      }
+    }
     onEvent?.({ kind: 'agent_end', agent: name, ok, text: text || '(no output)' });
     return { text, ok };
   }

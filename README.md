@@ -40,6 +40,10 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 5** — A2A messaging + cross-model review
 - [x] **Stage 6** — Minimal web UI
 - [x] **Stage 7** — Third adapter (opencode) + live streaming status in the UI
+- [x] **Stage 8** — Progressive (typing) rendering in the UI
+- [x] **Stage 9** — Per-turn timeout + cancellation (Stop button)
+- [x] **Stage 10** — Transient-failure retry with backoff
+- [x] **Stage 11** — Automatic memory sedimentation (decisions/lessons)
 
 ## Quick Start
 
