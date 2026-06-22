@@ -58,7 +58,13 @@ function send(res: import('node:http').ServerResponse, status: number, body: unk
 
 export function startServer(port = 3003): import('node:http').Server {
   const store = new ThreadStore();
-  const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
+  // A generous per-turn timeout so a hung CLI can't wedge a turn forever, while
+  // leaving room for legitimately slow turns (rate-limit waits, long tool runs).
+  const timeoutMs = Number(process.env.BAI_TURN_TIMEOUT_MS) || 10 * 60 * 1000;
+  const orch = new Orchestrator(store, ADAPTERS, {
+    memory: new MemoryStore(),
+    runOptions: { timeoutMs },
+  });
 
   const server = createServer(async (req, res) => {
     try {
@@ -138,9 +144,18 @@ async function route(
       'content-type': 'application/x-ndjson; charset=utf-8',
       'cache-control': 'no-cache',
     });
-    await orch.dispatch(streamMatch[1] ?? '', message.trim(), (event) => {
-      res.write(`${JSON.stringify(event)}\n`);
-    });
+    // Cancel the turn if the client disconnects (e.g. the UI "stop" button
+    // aborts the fetch, which closes the request).
+    const ac = new AbortController();
+    req.on('close', () => ac.abort());
+    await orch.dispatch(
+      streamMatch[1] ?? '',
+      message.trim(),
+      (event) => {
+        res.write(`${JSON.stringify(event)}\n`);
+      },
+      ac.signal,
+    );
     res.end();
     return;
   }

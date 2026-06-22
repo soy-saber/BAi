@@ -155,20 +155,44 @@ function handleEvent(ev, state) {
   }
 }
 
+// Tracks the in-flight turn so the Stop button can abort it.
+let activeController = null;
+
+function setSending(sending) {
+  input.disabled = sending;
+  if (sending) {
+    sendBtn.textContent = 'Stop';
+    sendBtn.classList.add('stop');
+    sendBtn.disabled = false;
+  } else {
+    sendBtn.textContent = 'Send';
+    sendBtn.classList.remove('stop');
+    sendBtn.disabled = !activeId;
+  }
+}
+
 $('#composer').onsubmit = async (ev) => {
   ev.preventDefault();
+  // If a turn is in flight, the button acts as Stop: abort and bail.
+  if (activeController) {
+    activeController.abort();
+    return;
+  }
   const message = input.value.trim();
   if (!message || !activeId) return;
   input.value = '';
-  setComposerEnabled(false);
+  setSending(true);
   addEntry('user', 'you', message);
 
   const state = { statusByAgent: {}, liveByAgent: {} };
+  const controller = new AbortController();
+  activeController = controller;
   try {
     const res = await fetch(`/api/threads/${activeId}/stream`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message }),
+      signal: controller.signal,
     });
     if (!res.ok || !res.body) {
       addStatus('Request failed — is the server running?', 'error');
@@ -195,11 +219,16 @@ $('#composer').onsubmit = async (ev) => {
       }
     }
   } catch (err) {
-    addStatus(`Connection lost: ${err?.message || err}`, 'error');
+    if (err?.name === 'AbortError') {
+      addStatus('Stopped.', 'muted');
+    } else {
+      addStatus(`Connection lost: ${err?.message || err}`, 'error');
+    }
+  } finally {
+    activeController = null;
+    setSending(false);
+    await loadThreads();
   }
-
-  setComposerEnabled(true);
-  await loadThreads();
 };
 
 function escapeHtml(s) {

@@ -68,10 +68,12 @@ export class Orchestrator {
     adapter: AgentAdapter,
     prompt: string,
     onEvent?: OnEvent,
+    signal?: AbortSignal,
   ): Promise<{ text: string; ok: boolean }> {
     const parts: string[] = [];
     let ok = true;
-    for await (const message of adapter.run(prompt, this.runOptions)) {
+    const runOptions = signal ? { ...this.runOptions, signal } : this.runOptions;
+    for await (const message of adapter.run(prompt, runOptions)) {
       onEvent?.({ kind: 'message', agent: adapter.name, message });
       if (message.type === 'text') {
         parts.push(message.text);
@@ -93,13 +95,14 @@ export class Orchestrator {
     prompt: string,
     hop: number,
     onEvent?: OnEvent,
+    signal?: AbortSignal,
   ): Promise<{ text: string; ok: boolean }> {
     const adapter = this.adapters[name];
     if (!adapter) return { text: '', ok: false };
     onEvent?.({ kind: 'agent_start', agent: name, hop });
     const memories = this.memory ? await this.memory.recall(recallKey) : [];
     const composed = composePrompt(IDENTITIES[name], memories, prompt);
-    const { text, ok } = await this.consume(adapter, composed, onEvent);
+    const { text, ok } = await this.consume(adapter, composed, onEvent, signal);
     await this.store.append(threadId, {
       role: 'agent',
       agent: name,
@@ -110,7 +113,12 @@ export class Orchestrator {
     return { text, ok };
   }
 
-  async dispatch(threadId: string, message: string, onEvent?: OnEvent): Promise<DispatchResult> {
+  async dispatch(
+    threadId: string,
+    message: string,
+    onEvent?: OnEvent,
+    signal?: AbortSignal,
+  ): Promise<DispatchResult> {
     const known = Object.keys(this.adapters);
     const { agents } = parseMentions(message, known);
     await this.store.append(threadId, { role: 'user', text: message, ts: Date.now() });
@@ -128,6 +136,8 @@ export class Orchestrator {
       const handoff = queue.shift();
       if (!handoff) break;
       if (!this.adapters[handoff.to]) continue;
+      // Stop draining the queue if the whole dispatch was cancelled.
+      if (signal?.aborted) break;
 
       const prompt = handoff.from === 'user' ? message : handoffPrompt(handoff, message);
       const { text: output } = await this.runTurn(
@@ -137,6 +147,7 @@ export class Orchestrator {
         prompt,
         handoff.hop,
         onEvent,
+        signal,
       );
       ran.push(handoff.to);
 

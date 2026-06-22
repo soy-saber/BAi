@@ -27,6 +27,17 @@ export interface RunOptions {
    * Defaults to 'bypass' so an unattended turn can actually do work.
    */
   permission?: Permission;
+  /**
+   * Max milliseconds for one turn before the child is killed and the turn
+   * fails. Omit or set 0 to disable. Kept generous by default because agent
+   * turns legitimately take minutes (see ADR 0003 on rate-limit latency).
+   */
+  timeoutMs?: number;
+  /**
+   * Abort signal to cancel the turn early (e.g. a "stop" button). When aborted,
+   * the child is killed and the turn ends with a failed result.
+   */
+  signal?: AbortSignal;
 }
 
 export interface AgentAdapter {
@@ -64,6 +75,12 @@ export async function* runCli(
   prompt: string,
   options: RunOptions = {},
 ): AsyncGenerator<AgentMessage> {
+  // Already cancelled before we start: don't spawn at all, just fail the turn.
+  if (options.signal?.aborted) {
+    yield { type: 'result', agent: spec.name, ok: false, error: `${spec.bin} cancelled` };
+    return;
+  }
+
   const args = spec.buildArgs(options.permission ?? 'bypass');
   const child = spawn(spec.bin, args, {
     cwd: options.cwd ?? process.cwd(),
@@ -80,6 +97,44 @@ export async function* runCli(
     spawnError = err;
   });
 
+  // Reason the turn was forcibly ended, if any. Set when we kill the child due
+  // to a timeout or an external abort, so the synthesized result is accurate.
+  let killReason: string | undefined;
+  // Assigned once the readline interface exists; closing it ends the for-await
+  // loop immediately, which destroying the stream alone does not do reliably.
+  let closeLines: () => void = () => {};
+  const kill = (reason: string): void => {
+    if (killReason) return;
+    killReason = reason;
+    // On Windows under shell:true the child is cmd.exe; killing it can leave the
+    // real grandchild running with the stdout pipe open, which would hang the
+    // readline loop below forever. Kill the whole tree, then close the readline
+    // interface so the async iterator ends regardless of OS reaping timing.
+    if (IS_WIN && child.pid !== undefined) {
+      try {
+        spawn('taskkill', ['/pid', String(child.pid), '/t', '/f']);
+      } catch {
+        child.kill();
+      }
+    } else {
+      child.kill();
+    }
+    closeLines();
+    child.stdout?.destroy();
+  };
+
+  // Per-turn timeout: kill the child and fail the turn if it runs too long.
+  const timeoutMs = options.timeoutMs ?? 0;
+  const timer =
+    timeoutMs > 0 ? setTimeout(() => kill(`timed out after ${timeoutMs}ms`), timeoutMs) : undefined;
+  if (timer && typeof timer.unref === 'function') timer.unref();
+
+  // External cancellation (e.g. a "stop" button). Only attach the listener
+  // here; an already-aborted signal is handled after the readline interface is
+  // wired up, so kill() can actually end the iterator (see below).
+  const onAbort = (): void => kill('cancelled');
+  options.signal?.addEventListener('abort', onAbort, { once: true });
+
   // Writing to stdin of a process that failed to spawn throws EPIPE; guard it.
   try {
     child.stdin.write(prompt);
@@ -94,36 +149,56 @@ export async function* runCli(
   });
 
   const lines = createInterface({ input: child.stdout, crlfDelay: Number.POSITIVE_INFINITY });
+  closeLines = () => lines.close();
   let sawResult = false;
 
-  for await (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let event: Record<string, unknown>;
-    try {
-      event = JSON.parse(trimmed);
-    } catch {
-      // Non-JSON line: the CLI printed something unexpected. Skip it rather
-      // than crashing the whole turn.
-      continue;
+  try {
+    for await (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let event: Record<string, unknown>;
+      try {
+        event = JSON.parse(trimmed);
+      } catch {
+        // Non-JSON line: the CLI printed something unexpected. Skip it rather
+        // than crashing the whole turn.
+        continue;
+      }
+      for (const message of spec.mapEvent(event, spec.name)) {
+        if (message.type === 'result') sawResult = true;
+        yield message;
+      }
     }
-    for (const message of spec.mapEvent(event, spec.name)) {
-      if (message.type === 'result') sawResult = true;
-      yield message;
-    }
+  } catch {
+    // Destroying stdout on kill (timeout/abort) can reject the iterator; that's
+    // expected — the killReason path below reports the real outcome.
   }
 
   const exitCode: number = await new Promise((resolve) => {
-    child.on('close', (code) => resolve(code ?? 0));
+    let settled = false;
+    const done = (code: number): void => {
+      if (settled) return;
+      settled = true;
+      resolve(code);
+    };
+    // 'close' fires once stdio is flushed; 'exit' fires on process exit. Resolve
+    // on whichever comes first so a killed/reaped tree can't leave us hanging.
+    child.on('close', (code) => done(code ?? 0));
+    child.on('exit', (code) => done(code ?? 0));
   });
+
+  if (timer) clearTimeout(timer);
+  if (options.signal) options.signal.removeEventListener('abort', onAbort);
 
   // Guarantee callers always get a terminal message.
   if (!sawResult) {
-    const reason = spawnError
-      ? `could not start '${spec.bin}': ${spawnError.message}`
-      : `${spec.bin} exited (code ${exitCode}) without a result${
-          stderr ? `: ${stderr.trim()}` : ''
-        }`;
+    const reason = killReason
+      ? `${spec.bin} ${killReason}`
+      : spawnError
+        ? `could not start '${spec.bin}': ${spawnError.message}`
+        : `${spec.bin} exited (code ${exitCode}) without a result${
+            stderr ? `: ${stderr.trim()}` : ''
+          }`;
     yield { type: 'result', agent: spec.name, ok: false, error: reason };
   }
 }
