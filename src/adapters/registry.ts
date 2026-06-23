@@ -9,13 +9,14 @@
 import type { AgentAdapter } from './adapter.js';
 import { claudeAdapter } from './claude.js';
 import { codexAdapter } from './codex.js';
+import { geminiAdapter } from './gemini.js';
 import { opencodeAdapter } from './opencode.js';
 import { type RetryOptions, withRetry } from './retry.js';
 
 export type AdapterRegistry = Record<string, AgentAdapter>;
 /** Build the standard registry, wrapping each adapter with retry. */
 export function buildRegistry(retry: RetryOptions = {}): AdapterRegistry {
-  const base = [claudeAdapter, codexAdapter, opencodeAdapter];
+  const base = [claudeAdapter, codexAdapter, opencodeAdapter, geminiAdapter];
   const registry: AdapterRegistry = {};
   for (const adapter of base) {
     registry[adapter.name] = withRetry(adapter, retry);

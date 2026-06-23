@@ -36,6 +36,20 @@ export const IDENTITIES: Record<string, Identity> = {
     persona: 'Sharp, skeptical, detail-obsessed. Hunts edge cases and unstated assumptions.',
     strengths: ['code review', 'testing', 'finding bugs', 'verification'],
   },
+  opencode: {
+    agent: 'opencode',
+    name: 'Sphynx',
+    role: 'Fast generalist & prototyper',
+    persona: 'Quick and pragmatic. Ships a working draft fast, iterates from there.',
+    strengths: ['prototyping', 'scripting', 'quick fixes', 'exploration'],
+  },
+  gemini: {
+    agent: 'gemini',
+    name: 'Bengal',
+    role: 'Research & analysis specialist',
+    persona: 'Broad, curious, synthesizes. Good at surveying options and explaining tradeoffs.',
+    strengths: ['research', 'analysis', 'documentation', 'summarizing'],
+  },
 };
 
 /** Render an identity as a prompt block. */

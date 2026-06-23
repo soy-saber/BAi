@@ -45,6 +45,8 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 10** — Transient-failure retry with backoff
 - [x] **Stage 11** — Automatic memory sedimentation (decisions/lessons)
 - [x] **Stage 12** — Smarter recall + team retrospective (distilled insights)
+- [x] **Stage 13** — Fourth adapter (Gemini) behind the same `CliSpec`
+- [ ] **Stage 14** — Capability routing (suggest the best agent when none is @mentioned)
 
 ## Quick Start
 
