@@ -44,6 +44,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 9** — Per-turn timeout + cancellation (Stop button)
 - [x] **Stage 10** — Transient-failure retry with backoff
 - [x] **Stage 11** — Automatic memory sedimentation (decisions/lessons)
+- [x] **Stage 12** — Smarter recall + team retrospective (distilled insights)
 
 ## Quick Start
 

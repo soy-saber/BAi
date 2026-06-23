@@ -1,9 +1,11 @@
 /**
  * Memory store — shared institutional knowledge that persists and grows.
  *
- * Two kinds of memory:
+ * Kinds of memory:
  *   - 'decision' — a choice the team made and why (a decision log)
  *   - 'lesson'   — something learned, often from a mistake
+ *   - 'insight'  — a higher-order takeaway distilled by reviewing many memories
+ *                  (the team reflecting on its own history; see retrospect.ts)
  *
  * Stored as a single appended JSON-lines file (data/memory.jsonl) so writes are
  * cheap and the log is easy to read. Recall is keyword-based for now: simple,
@@ -16,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-export type MemoryKind = 'decision' | 'lesson';
+export type MemoryKind = 'decision' | 'lesson' | 'insight';
 
 export interface Memory {
   id: string;
@@ -58,24 +60,109 @@ export class MemoryStore {
   }
 
   /**
-   * Recall up to `limit` memories relevant to `query`, most recent first.
-   * Scores by how many query words appear in the memory text; ties broken by
-   * recency. An empty query returns the most recent memories.
+   * Recall up to `limit` memories relevant to `query`, best match first.
+   *
+   * Scoring, kept deliberately simple and transparent (no embeddings yet):
+   *   - tokenize the query, drop stopwords and 1-char tokens
+   *   - count distinct query terms that appear in the memory as whole words
+   *     (word-boundary match, so "test" doesn't hit "latest")
+   *   - add a small recency bonus so that, among similar matches, newer wins
+   *   - 'insight' memories get a slight boost: they are distilled takeaways and
+   *     usually the most useful thing to surface
+   * An empty/stopword-only query returns the most recent memories.
    */
   async recall(query: string, limit = 5): Promise<Memory[]> {
     const memories = await this.all();
-    const words = query.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    const terms = [...new Set(tokenize(query))];
+    const now = Date.now();
+
     const scored = memories.map((m) => {
       const text = m.text.toLowerCase();
-      const score = words.reduce((n, w) => (text.includes(w) ? n + 1 : n), 0);
+      let score = 0;
+      for (const term of terms) {
+        if (new RegExp(`\\b${escapeRegExp(term)}\\b`).test(text)) score += 1;
+      }
+      // Recency bonus in [0, 0.5): newer memories edge out older ties without
+      // ever outweighing a real keyword match.
+      const ageDays = (now - m.ts) / 86_400_000;
+      score += 0.5 / (1 + ageDays);
+      if (m.kind === 'insight') score += 0.25;
       return { m, score };
     });
+
+    // With real query terms, require at least one keyword hit (score >= 1);
+    // the recency/insight bonuses alone (< 1) are not enough to surface noise.
+    const threshold = terms.length === 0 ? 0 : 1;
     return scored
-      .filter((s) => words.length === 0 || s.score > 0)
+      .filter((s) => s.score >= threshold)
       .sort((a, b) => b.score - a.score || b.m.ts - a.m.ts)
       .slice(0, limit)
       .map((s) => s.m);
   }
+}
+
+/** Words too common to carry meaning in keyword recall. */
+const STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'but',
+  'for',
+  'to',
+  'of',
+  'in',
+  'on',
+  'at',
+  'by',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'it',
+  'its',
+  'this',
+  'that',
+  'these',
+  'those',
+  'with',
+  'as',
+  'we',
+  'our',
+  'you',
+  'your',
+  'i',
+  'me',
+  'my',
+  'so',
+  'if',
+  'then',
+  'than',
+  'do',
+  'does',
+  'did',
+  'can',
+  'will',
+  'would',
+  'should',
+  'use',
+  'using',
+  'used',
+  'because',
+]);
+
+/** Lowercase, split on non-alphanumerics, drop stopwords and 1-char tokens. */
+function tokenize(text: string): string[] {
+  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+    (w) => w.length > 1 && !STOPWORDS.has(w),
+  );
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** Render recalled memories as a prompt block (empty string if none). */

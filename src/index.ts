@@ -54,6 +54,7 @@ const USAGE = `Usage:
   bai send <threadId> "<message>"   route to @mentioned agents (${Object.keys(ADAPTERS).join(', ')})
   bai remember <decision|lesson> <agent> "<text>"   record team memory
   bai memory ["<query>"]            recall memory (most recent if no query)
+  bai retrospect <agent>            distill recent memory into insights
   bai serve [port]                  start the web UI (default http://localhost:3003)`;
 
 async function main(): Promise<void> {
@@ -107,6 +108,19 @@ async function main(): Promise<void> {
       const memories = await new MemoryStore().recall(query);
       if (memories.length === 0) console.log('(no matching memory)');
       for (const m of memories) console.log(`${m.id}  (${m.kind}/${m.agent})  ${m.text}`);
+      break;
+    }
+    case 'retrospect': {
+      const agentName = rest[0];
+      const adapter = agentName ? ADAPTERS[agentName] : undefined;
+      if (!adapter) {
+        return fail(`Usage: bai retrospect <${Object.keys(ADAPTERS).join('|')}>`);
+      }
+      const { runRetrospect } = await import('./identity/retrospect.js');
+      const result = await runRetrospect(adapter, new MemoryStore());
+      console.log(`reviewed ${result.reviewed} memories`);
+      if (result.insights.length === 0) console.log('(no new insights distilled)');
+      for (const text of result.insights) console.log(`  + insight: ${text}`);
       break;
     }
     case 'serve': {
