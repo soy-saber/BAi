@@ -147,9 +147,12 @@ function handleEvent(ev, state) {
       }
       break;
     }
+    case 'routed':
+      addStatus(`No @mention — routed to ${ev.agent} by capability.`, 'muted');
+      break;
     case 'done':
       if (ev.noMatch) {
-        addStatus('No known @mention — nothing dispatched.', 'muted');
+        addStatus('No @mention and no capability match — nothing dispatched.', 'muted');
       }
       break;
   }

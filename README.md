@@ -46,7 +46,10 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 11** — Automatic memory sedimentation (decisions/lessons)
 - [x] **Stage 12** — Smarter recall + team retrospective (distilled insights)
 - [x] **Stage 13** — Fourth adapter (Gemini) behind the same `CliSpec`
-- [ ] **Stage 14** — Capability routing (suggest the best agent when none is @mentioned)
+- [x] **Stage 14** — Capability routing (pick the best agent when none is @mentioned)
+- [ ] **Stage 15** — Audit pipeline (claude audits → reviewer gates → fallback chain)
+- [ ] **Stage 16** — UI polish + @mention autocomplete
+- [ ] **Stage 17** — A practice build: a small game driven by the A2A machinery
 
 ## Quick Start
 

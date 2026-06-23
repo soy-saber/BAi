@@ -41,8 +41,11 @@ function render(event: DispatchEvent): void {
       if (event.ok) console.log(`[${event.agent}] ✓ done`);
       else console.error(`[${event.agent}] ✗ failed`);
       break;
+    case 'routed':
+      console.log(`(no @mention — routed to @${event.agent} by capability)`);
+      break;
     case 'done':
-      if (event.noMatch) console.log('(no known @mention — nothing dispatched)');
+      if (event.noMatch) console.log('(no @mention and no capability match — nothing dispatched)');
       break;
   }
 }
@@ -90,7 +93,7 @@ async function main(): Promise<void> {
       const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
       console.log(`> ${message}`);
       const result = await orch.dispatch(threadId, message, render);
-      if (result.noMatch) console.log('(no known @mention — nothing dispatched)');
+      if (result.noMatch) console.log('(no @mention and no capability match — nothing dispatched)');
       break;
     }
     case 'remember': {

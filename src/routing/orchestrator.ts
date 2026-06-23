@@ -17,6 +17,7 @@ import type { MemoryStore } from '../store/memory-store.js';
 import type { ThreadStore } from '../store/thread-store.js';
 import type { AgentMessage } from '../types.js';
 import { detectHandoffs, type Handoff, handoffPrompt } from './a2a.js';
+import { pickAgent } from './capability.js';
 import { parseMentions } from './mentions.js';
 
 export type AdapterRegistry = Record<string, AgentAdapter>;
@@ -30,6 +31,8 @@ export type DispatchEvent =
   | { kind: 'agent_start'; agent: string; hop: number }
   | { kind: 'message'; agent: string; message: AgentMessage }
   | { kind: 'agent_end'; agent: string; ok: boolean; text: string }
+  // No @mention: capability routing picked this agent from its strengths.
+  | { kind: 'routed'; agent: string }
   | { kind: 'done'; ran: string[]; noMatch: boolean };
 
 /** Reported for every lifecycle event during dispatch. */
@@ -38,8 +41,10 @@ export type OnEvent = (event: DispatchEvent) => void;
 export interface DispatchResult {
   /** Agents that were actually run, in order (includes A2A handoffs). */
   ran: string[];
-  /** True if the message contained no known @mention. */
+  /** True if the message had no @mention and capability routing found no match. */
   noMatch: boolean;
+  /** Agent chosen by capability routing when the message had no @mention. */
+  routed?: string;
 }
 
 export interface OrchestratorOptions {
@@ -47,12 +52,19 @@ export interface OrchestratorOptions {
   memory?: MemoryStore;
   /** Max A2A handoff depth before we stop, to prevent @-loops. Default 3. */
   maxHops?: number;
+  /**
+   * When a message names no agent, route it to the best match by strengths
+   * instead of running nobody. An explicit @mention always wins; this only
+   * applies to the zero-mention case. Default true.
+   */
+  autoRoute?: boolean;
 }
 
 export class Orchestrator {
   private readonly runOptions: RunOptions;
   private readonly memory?: MemoryStore;
   private readonly maxHops: number;
+  private readonly autoRoute: boolean;
 
   constructor(
     private readonly store: ThreadStore,
@@ -62,6 +74,7 @@ export class Orchestrator {
     this.runOptions = options.runOptions ?? {};
     this.memory = options.memory;
     this.maxHops = options.maxHops ?? 3;
+    this.autoRoute = options.autoRoute ?? true;
   }
 
   /** Collapse an agent's message stream into one transcript text + success flag. */
@@ -131,14 +144,28 @@ export class Orchestrator {
     const { agents } = parseMentions(message, known);
     await this.store.append(threadId, { role: 'user', text: message, ts: Date.now() });
 
+    // No explicit @mention: try capability routing (best match by strengths).
+    // An @mention always wins; this only fills the zero-mention gap. We only
+    // consider agents that are actually registered, so routing can't pick an
+    // identity with no adapter behind it.
+    let routed: string | undefined;
+    let toRun = agents;
     if (agents.length === 0) {
-      onEvent?.({ kind: 'done', ran: [], noMatch: true });
-      return { ran: [], noMatch: true };
+      if (this.autoRoute) {
+        const candidates = known.map((name) => IDENTITIES[name]).filter((id) => id !== undefined);
+        routed = pickAgent(message, candidates);
+      }
+      if (!routed) {
+        onEvent?.({ kind: 'done', ran: [], noMatch: true });
+        return { ran: [], noMatch: true };
+      }
+      onEvent?.({ kind: 'routed', agent: routed });
+      toRun = [routed];
     }
 
     const ran: string[] = [];
     // Seed the queue with the human turn's mentions (hop 0), then drain it.
-    const queue: Handoff[] = agents.map((to) => ({ to, from: 'user', context: message, hop: 0 }));
+    const queue: Handoff[] = toRun.map((to) => ({ to, from: 'user', context: message, hop: 0 }));
 
     while (queue.length > 0) {
       const handoff = queue.shift();
@@ -165,6 +192,6 @@ export class Orchestrator {
       }
     }
     onEvent?.({ kind: 'done', ran, noMatch: false });
-    return { ran, noMatch: false };
+    return { ran, noMatch: false, routed };
   }
 }

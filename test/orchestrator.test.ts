@@ -112,6 +112,74 @@ test('A2A: an agent handoff runs the mentioned agent automatically', async () =>
   });
 });
 
+test('capability routing: no @mention routes to the best agent by strengths', async () => {
+  await withStore(async (store) => {
+    const adapters = {
+      claude: fakeAdapter('claude', [
+        { type: 'text', agent: 'claude', text: 'refactoring it' },
+        { type: 'result', agent: 'claude', ok: true },
+      ]),
+      codex: fakeAdapter('codex', [
+        { type: 'text', agent: 'codex', text: 'reviewing it' },
+        { type: 'result', agent: 'codex', ok: true },
+      ]),
+    };
+    const orch = new Orchestrator(store, adapters);
+    const thread = await store.create('test');
+
+    // "review" + "bugs" hit codex's strengths; no @mention given.
+    const result = await orch.dispatch(thread.id, 'please review this code for bugs');
+    assert.equal(result.noMatch, false);
+    assert.equal(result.routed, 'codex');
+    assert.deepEqual(result.ran, ['codex']);
+  });
+});
+
+test('capability routing: an explicit @mention always wins over routing', async () => {
+  await withStore(async (store) => {
+    const adapters = {
+      claude: fakeAdapter('claude', [{ type: 'result', agent: 'claude', ok: true }]),
+      codex: fakeAdapter('codex', [{ type: 'result', agent: 'codex', ok: true }]),
+    };
+    const orch = new Orchestrator(store, adapters);
+    const thread = await store.create('test');
+
+    // Words lean toward codex (review/bugs), but @claude is explicit.
+    const result = await orch.dispatch(thread.id, '@claude review this for bugs');
+    assert.equal(result.routed, undefined);
+    assert.deepEqual(result.ran, ['claude']);
+  });
+});
+
+test('capability routing: no keyword match and no @mention dispatches nobody', async () => {
+  await withStore(async (store) => {
+    const adapters = {
+      claude: fakeAdapter('claude', [{ type: 'result', agent: 'claude', ok: true }]),
+      codex: fakeAdapter('codex', [{ type: 'result', agent: 'codex', ok: true }]),
+    };
+    const orch = new Orchestrator(store, adapters);
+    const thread = await store.create('test');
+
+    const result = await orch.dispatch(thread.id, 'hello there everyone');
+    assert.equal(result.noMatch, true);
+    assert.deepEqual(result.ran, []);
+  });
+});
+
+test('capability routing: autoRoute:false restores the old no-dispatch behavior', async () => {
+  await withStore(async (store) => {
+    const adapters = {
+      codex: fakeAdapter('codex', [{ type: 'result', agent: 'codex', ok: true }]),
+    };
+    const orch = new Orchestrator(store, adapters, { autoRoute: false });
+    const thread = await store.create('test');
+
+    const result = await orch.dispatch(thread.id, 'please review this code for bugs');
+    assert.equal(result.noMatch, true);
+    assert.deepEqual(result.ran, []);
+  });
+});
+
 test('A2A: the hop cap stops a two-agent @-loop', async () => {
   await withStore(async (store) => {
     // Each agent always pings the other — without a cap this never ends.

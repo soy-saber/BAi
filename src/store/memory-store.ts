@@ -17,6 +17,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { escapeRegExp, tokenize } from '../text/tokenize.js';
 
 export type MemoryKind = 'decision' | 'lesson' | 'insight';
 
@@ -99,70 +100,6 @@ export class MemoryStore {
       .slice(0, limit)
       .map((s) => s.m);
   }
-}
-
-/** Words too common to carry meaning in keyword recall. */
-const STOPWORDS = new Set([
-  'the',
-  'a',
-  'an',
-  'and',
-  'or',
-  'but',
-  'for',
-  'to',
-  'of',
-  'in',
-  'on',
-  'at',
-  'by',
-  'is',
-  'are',
-  'was',
-  'were',
-  'be',
-  'been',
-  'it',
-  'its',
-  'this',
-  'that',
-  'these',
-  'those',
-  'with',
-  'as',
-  'we',
-  'our',
-  'you',
-  'your',
-  'i',
-  'me',
-  'my',
-  'so',
-  'if',
-  'then',
-  'than',
-  'do',
-  'does',
-  'did',
-  'can',
-  'will',
-  'would',
-  'should',
-  'use',
-  'using',
-  'used',
-  'because',
-]);
-
-/** Lowercase, split on non-alphanumerics, drop stopwords and 1-char tokens. */
-function tokenize(text: string): string[] {
-  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
-    (w) => w.length > 1 && !STOPWORDS.has(w),
-  );
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** Render recalled memories as a prompt block (empty string if none). */
