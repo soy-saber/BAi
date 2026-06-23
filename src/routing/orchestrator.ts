@@ -134,6 +134,34 @@ export class Orchestrator {
     return { text, ok };
   }
 
+  /**
+   * Run a single named agent on a prompt and persist it, outside the @mention
+   * flow. Used by orchestration that picks agents itself (e.g. the audit
+   * pipeline's stage runner), so those features inherit identity, memory,
+   * streaming, timeout/cancel, and transcript persistence for free.
+   *
+   * `recallKey` is what memory recall matches on (usually the task text);
+   * `hop` is only a display tag. Returns the turn's text and whether it
+   * completed (ok=false means the agent failed to run — spawn error, timeout,
+   * crash — not that it returned a negative verdict).
+   */
+  async runOne(
+    threadId: string,
+    agent: string,
+    prompt: string,
+    options: { recallKey?: string; hop?: number; onEvent?: OnEvent; signal?: AbortSignal } = {},
+  ): Promise<{ text: string; ok: boolean }> {
+    return this.runTurn(
+      threadId,
+      agent,
+      options.recallKey ?? prompt,
+      prompt,
+      options.hop ?? 0,
+      options.onEvent,
+      options.signal,
+    );
+  }
+
   async dispatch(
     threadId: string,
     message: string,

@@ -15,6 +15,7 @@
 import { buildRegistry } from './adapters/registry.js';
 import type { DispatchEvent } from './routing/orchestrator.js';
 import { Orchestrator } from './routing/orchestrator.js';
+import { auditPipeline, type PipelineEvent, runPipeline } from './routing/pipeline.js';
 import { type MemoryKind, MemoryStore } from './store/memory-store.js';
 import { ThreadStore } from './store/thread-store.js';
 
@@ -50,6 +51,21 @@ function render(event: DispatchEvent): void {
   }
 }
 
+/** Render an audit-pipeline event to the terminal. */
+function renderPipeline(event: PipelineEvent): void {
+  if (event.stage_start) {
+    console.log(`\n=== stage: ${event.stage_start.stage} — ${event.stage_start.agent} ===`);
+  } else if (event.fallback) {
+    const { stage, from, to, reason } = event.fallback;
+    console.error(`  ⚠ [${stage}] ${from} failed (${reason}) → falling back to ${to}`);
+  } else if (event.stage_end) {
+    const r = event.stage_end;
+    const over = r.failedOver.length ? ` (after ${r.failedOver.join(', ')} failed)` : '';
+    if (r.ok) console.log(`--- ${r.stage}: done by ${r.agent}${over} ---`);
+    else console.error(`--- ${r.stage}: EXHAUSTED — tried ${r.failedOver.join(', ')} ---`);
+  }
+}
+
 const USAGE = `Usage:
   bai new "<title>"                 create a thread
   bai threads                       list threads
@@ -58,6 +74,7 @@ const USAGE = `Usage:
   bai remember <decision|lesson> <agent> "<text>"   record team memory
   bai memory ["<query>"]            recall memory (most recent if no query)
   bai retrospect <agent>            distill recent memory into insights
+  bai audit <threadId> "<target>"   run the audit pipeline (claude → codex/opencode gatekeep)
   bai serve [port]                  start the web UI (default http://localhost:3003)`;
 
 async function main(): Promise<void> {
@@ -94,6 +111,27 @@ async function main(): Promise<void> {
       console.log(`> ${message}`);
       const result = await orch.dispatch(threadId, message, render);
       if (result.noMatch) console.log('(no @mention and no capability match — nothing dispatched)');
+      break;
+    }
+    case 'audit': {
+      const [threadId, ...words] = rest;
+      const target = words.join(' ').trim();
+      if (!threadId || !target) {
+        return fail('Usage: bai audit <threadId> "<file path or description to audit>"');
+      }
+      const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
+      console.log(`> audit: ${target}`);
+      const results = await runPipeline(orch, threadId, target, auditPipeline(), {
+        onEvent: render,
+        onPipelineEvent: renderPipeline,
+      });
+      const last = results[results.length - 1];
+      if (!last?.ok) {
+        console.error('\naudit pipeline did not complete (a stage exhausted its agents).');
+        process.exitCode = 1;
+      } else {
+        console.log('\naudit pipeline complete.');
+      }
       break;
     }
     case 'remember': {

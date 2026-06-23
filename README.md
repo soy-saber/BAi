@@ -47,7 +47,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 12** — Smarter recall + team retrospective (distilled insights)
 - [x] **Stage 13** — Fourth adapter (Gemini) behind the same `CliSpec`
 - [x] **Stage 14** — Capability routing (pick the best agent when none is @mentioned)
-- [ ] **Stage 15** — Audit pipeline (claude audits → reviewer gates → fallback chain)
+- [x] **Stage 15** — Audit pipeline (claude audits → reviewer gates → fallback chain)
 - [ ] **Stage 16** — UI polish + @mention autocomplete
 - [ ] **Stage 17** — A practice build: a small game driven by the A2A machinery
 
@@ -64,6 +64,13 @@ node dist/index.js new "auth refactor"          # -> created thread a1b2c3d4
 node dist/index.js send a1b2c3d4 "@claude design the API, then @codex review it"
 node dist/index.js show a1b2c3d4                # print the transcript
 node dist/index.js threads                      # list threads
+
+# Audit pipeline: claude audits, codex (GPT) gatekeeps, opencode is the fallback
+node dist/index.js audit a1b2c3d4 "src/server/server.ts"
+
+# Audit pipeline — claude audits, a reviewer gatekeeps, with a fallback chain
+# (claude → codex, falling back to opencode if codex can't be reached):
+node dist/index.js audit a1b2c3d4 "src/server/server.ts"
 
 npm test     # routing/store/identity/A2A unit tests (fake adapters, no live CLI)
 
