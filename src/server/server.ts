@@ -24,6 +24,7 @@ import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRegistry } from '../adapters/registry.js';
+import { IDENTITIES } from '../identity/identity.js';
 import { Orchestrator } from '../routing/orchestrator.js';
 import { MemoryStore } from '../store/memory-store.js';
 import { ThreadStore } from '../store/thread-store.js';
@@ -96,6 +97,22 @@ async function route(
     res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
     res.end(js);
     return;
+  }
+
+  if (method === 'GET' && path === '/api/agents') {
+    // The agents the UI can @mention, with the metadata its autocomplete and
+    // legend need (id, display name, role, strengths). Sourced from the same
+    // identities the orchestrator uses, filtered to those with a live adapter.
+    const agents = Object.keys(ADAPTERS).map((id) => {
+      const identity = IDENTITIES[id];
+      return {
+        id,
+        name: identity?.name ?? id,
+        role: identity?.role ?? '',
+        strengths: identity?.strengths ?? [],
+      };
+    });
+    return send(res, 200, agents);
   }
 
   if (method === 'GET' && path === '/api/threads') {
