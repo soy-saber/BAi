@@ -13,6 +13,8 @@
  */
 
 import { buildRegistry } from './adapters/registry.js';
+import type { GameEvent } from './game/runner.js';
+import { render as renderBoard } from './game/tictactoe.js';
 import type { DispatchEvent } from './routing/orchestrator.js';
 import { Orchestrator } from './routing/orchestrator.js';
 import { auditPipeline, type PipelineEvent, runPipeline } from './routing/pipeline.js';
@@ -66,6 +68,28 @@ function renderPipeline(event: PipelineEvent): void {
   }
 }
 
+/** Render a tic-tac-toe game event to the terminal. */
+function renderGame(event: GameEvent): void {
+  if (event.kind === 'turn_start') {
+    console.log(`\n${event.player} (${event.agent}) to move:`);
+    console.log(renderBoard(event.board));
+  } else if (event.kind === 'illegal') {
+    console.error(`  ⚠ ${event.player} (${event.agent}) illegal: ${event.reason} — re-prompting`);
+  } else if (event.kind === 'move') {
+    console.log(`  → ${event.player} (${event.agent}) plays cell ${event.cell}`);
+  } else if (event.kind === 'game_end') {
+    const r = event.report;
+    console.log(`\nFinal board:\n${renderBoard(r.board)}`);
+    if (r.result.kind === 'win') {
+      console.log(`\n${r.result.player} (${r.result.agent}) wins.`);
+    } else if (r.result.kind === 'draw') {
+      console.log('\nDraw.');
+    } else {
+      console.log(`\n${r.result.player} (${r.result.agent}) forfeits: ${r.result.reason}`);
+    }
+  }
+}
+
 const USAGE = `Usage:
   bai new "<title>"                 create a thread
   bai threads                       list threads
@@ -75,6 +99,7 @@ const USAGE = `Usage:
   bai memory ["<query>"]            recall memory (most recent if no query)
   bai retrospect <agent>            distill recent memory into insights
   bai audit <threadId> "<target>"   run the audit pipeline (claude → codex/opencode gatekeep)
+  bai play <agentX> <agentO>        play tic-tac-toe: two agents, a deterministic referee
   bai serve [port]                  start the web UI (default http://localhost:3003)`;
 
 async function main(): Promise<void> {
@@ -132,6 +157,22 @@ async function main(): Promise<void> {
       } else {
         console.log('\naudit pipeline complete.');
       }
+      break;
+    }
+    case 'play': {
+      const [xName, oName] = rest;
+      const x = xName ? ADAPTERS[xName] : undefined;
+      const o = oName ? ADAPTERS[oName] : undefined;
+      if (!x || !o) {
+        return fail(
+          `Usage: bai play <X-agent> <O-agent>  (agents: ${Object.keys(ADAPTERS).join(', ')})`,
+        );
+      }
+      const { playGame } = await import('./game/runner.js');
+      console.log(`> tic-tac-toe: ${xName} (X) vs ${oName} (O)\n`);
+      // renderGame prints the final board and outcome on the game_end event.
+      const report = await playGame({ X: x, O: o }, { onEvent: renderGame });
+      if (report.result.kind === 'forfeit') process.exitCode = 1;
       break;
     }
     case 'remember': {
