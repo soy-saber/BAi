@@ -4,6 +4,10 @@
 
 Accepted.
 
+## Agent
+
+Claude.
+
 ## Context
 
 Stages 4–5 gave the team a memory store with keyword recall, but writing to it

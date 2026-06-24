@@ -2,6 +2,7 @@
 
 Status: accepted
 Stage: S15
+Agent: Claude
 
 ## Context
 

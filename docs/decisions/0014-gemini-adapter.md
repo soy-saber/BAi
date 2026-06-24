@@ -1,7 +1,8 @@
 # 0014 — Gemini adapter
 
 Status: accepted
-Stage: S12.5 (inserted before capability routing)
+Stage: S13
+Agent: Claude
 
 ## Context
 
@@ -83,4 +84,4 @@ key is available.
   records this honestly rather than pretending green unit tests mean a working
   integration.
 - Gemini's declared strengths (long-context analysis, multimodal) feed the
-  capability-routing stage (S13) that follows.
+  capability-routing stage (S14) that follows.

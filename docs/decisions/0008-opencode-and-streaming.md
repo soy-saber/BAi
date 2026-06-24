@@ -4,6 +4,10 @@
 
 Accepted.
 
+## Agent
+
+Claude.
+
 ## Context
 
 Two needs drove this stage:

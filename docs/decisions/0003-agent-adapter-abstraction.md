@@ -2,6 +2,7 @@
 
 - **Date:** 2026-06-21
 - **Status:** accepted
+- **Agent:** Claude
 
 ## Context
 

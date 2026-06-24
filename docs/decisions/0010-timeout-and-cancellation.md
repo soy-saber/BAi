@@ -4,6 +4,10 @@
 
 Accepted.
 
+## Agent
+
+Claude.
+
 ## Context
 
 A turn drives an external CLI we don't control. It can hang (network stall,

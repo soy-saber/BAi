@@ -4,6 +4,10 @@
 
 Accepted.
 
+## Agent
+
+Claude.
+
 ## Context
 
 Agent CLIs fail for two very different reasons:

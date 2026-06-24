@@ -4,6 +4,10 @@
 
 Accepted.
 
+## Agent
+
+Claude.
+
 ## Context
 
 After Stage 7 the UI streamed *lifecycle* events but still rendered an agent's

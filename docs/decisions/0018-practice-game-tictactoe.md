@@ -3,6 +3,7 @@
 - **Date:** 2026-06-24
 - **Status:** accepted
 - **Stage:** S17
+- **Agent:** Claude
 
 ## Context
 
