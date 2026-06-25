@@ -1,12 +1,19 @@
 /**
- * Tests for the git status parser. We test the pure `parseStatus` against fixed
- * porcelain fixtures — no git process spawned — which is exactly why the parser
- * was split out from the spawn wrappers (see git.ts design notes).
+ * Tests for the git inspector. Two layers:
+ *   - `parseStatus` against fixed porcelain fixtures — no git process spawned,
+ *     which is exactly why the parser was split out from the spawn wrappers.
+ *   - the mutating wrappers (stage/unstage/commit) against a throwaway repo in
+ *     a temp dir, so the path-validation guard and real git behavior are
+ *     exercised end to end without touching this project's repo.
  */
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { parseStatus } from '../src/git.js';
+import { gitCommit, gitDiff, gitStage, gitStatus, gitUnstage, parseStatus } from '../src/git.js';
 
 test('parses branch with upstream and ahead/behind', () => {
   const out = parseStatus('## main...origin/main [ahead 2, behind 1]\n');
@@ -93,4 +100,112 @@ test('ignores blank lines and short garbage', () => {
 test('empty status yields no files', () => {
   const out = parseStatus('## main...origin/main\n');
   assert.deepEqual(out.files, []);
+});
+
+// ---- live git: stage / unstage / commit against a throwaway repo ----------
+// These spawn real git in a temp dir, so they exercise the actual argv,
+// path-validation guard, and exit-code handling — not just the pure parser.
+// Skipped automatically if git isn't on PATH.
+
+function gitAvailable(): boolean {
+  try {
+    execFileSync('git', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function makeRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'bai-git-'));
+  const run = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
+  run('init', '-q');
+  // Local identity so commits work without a global git config.
+  run('config', 'user.email', 'test@bai.local');
+  run('config', 'user.name', 'BAi Test');
+  run('config', 'commit.gpgsign', 'false');
+  return dir;
+}
+
+test('live: stage → commit → clean tree', { skip: !gitAvailable() }, async () => {
+  const dir = makeRepo();
+  try {
+    writeFileSync(join(dir, 'a.txt'), 'hello\n');
+
+    // Untracked file shows up, with no tracked diff to show.
+    let status = await gitStatus(dir);
+    assert.equal(status.repo, true);
+    assert.equal(status.files.length, 1);
+    assert.equal(status.files[0]?.untracked, true);
+    const newDiff = await gitDiff('a.txt', { cwd: dir });
+    assert.equal(newDiff.untracked, true);
+
+    // Stage it, then it's a staged add.
+    const staged = await gitStage(['a.txt'], dir);
+    assert.equal(staged.ok, true);
+    status = await gitStatus(dir);
+    assert.equal(status.files[0]?.staged, true);
+
+    // Commit the index.
+    const committed = await gitCommit('add a.txt', dir);
+    assert.equal(committed.ok, true);
+    assert.match(committed.committed ?? '', /add a\.txt/);
+
+    // Working tree is clean again.
+    status = await gitStatus(dir);
+    assert.equal(status.files.length, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('live: unstage moves a file back out of the index', { skip: !gitAvailable() }, async () => {
+  const dir = makeRepo();
+  try {
+    writeFileSync(join(dir, 'b.txt'), 'one\n');
+    await gitStage(['b.txt'], dir);
+    assert.equal((await gitStatus(dir)).files[0]?.staged, true);
+
+    const un = await gitUnstage(['b.txt'], dir);
+    assert.equal(un.ok, true);
+    const f = (await gitStatus(dir)).files[0];
+    assert.ok(f);
+    assert.equal(f.staged, false);
+    assert.equal(f.untracked, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('live: staging a path git does not report is rejected', {
+  skip: !gitAvailable(),
+}, async () => {
+  const dir = makeRepo();
+  try {
+    writeFileSync(join(dir, 'real.txt'), 'x\n');
+    // "../escape" is not in `git status`, so the guard must refuse it — this is
+    // the test that the endpoint can't be coaxed into staging arbitrary paths.
+    const bad = await gitStage(['../escape.txt'], dir);
+    assert.equal(bad.ok, false);
+    assert.match(bad.error ?? '', /not a changed file/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('live: commit with nothing staged fails cleanly', { skip: !gitAvailable() }, async () => {
+  const dir = makeRepo();
+  try {
+    const res = await gitCommit('nothing here', dir);
+    assert.equal(res.ok, false);
+    assert.ok((res.error ?? '').length > 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('empty file list and empty message are rejected without spawning git', async () => {
+  assert.equal((await gitStage([], '/nonexistent')).ok, false);
+  assert.equal((await gitUnstage([], '/nonexistent')).ok, false);
+  assert.equal((await gitCommit('   ', '/nonexistent')).ok, false);
 });

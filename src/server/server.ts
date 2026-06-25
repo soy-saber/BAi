@@ -19,9 +19,14 @@
  *                                  dispatch events as newline-delimited JSON
  *   GET  /api/git/status        -> working-tree changes (porcelain, parsed)
  *   GET  /api/git/diff?file=    -> unified diff for one file (or the whole tree)
+ *   POST /api/git/stage         -> { files } `git add` changed paths
+ *   POST /api/git/unstage       -> { files } `git restore --staged` paths
+ *   POST /api/git/commit        -> { message } commit the staged index
  *
- * The git endpoints are READ-ONLY: they shell out to `git status`/`git diff` to
- * show what the agents changed in the working directory, never to mutate it.
+ * The git reads (status/diff) are side-effect free. The writes stage/unstage and
+ * commit, but only ever act on paths git already reports as changed, and only
+ * the staged index — no push, reset, checkout, or other destructive op lives
+ * here; those stay a deliberate, out-of-band manual decision (see ADR 0024).
  */
 
 import { readFile } from 'node:fs/promises';
@@ -29,7 +34,7 @@ import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRegistry } from '../adapters/registry.js';
-import { gitDiff, gitStatus } from '../git.js';
+import { gitCommit, gitDiff, gitStage, gitStatus, gitUnstage } from '../git.js';
 import { IDENTITIES } from '../identity/identity.js';
 import { Orchestrator } from '../routing/orchestrator.js';
 import { runPipeline, securityAuditPipeline } from '../routing/pipeline.js';
@@ -136,6 +141,34 @@ async function route(
     const file = url.searchParams.get('file') ?? undefined;
     const diff = await gitDiff(file);
     return send(res, 200, diff);
+  }
+
+  // Git writes. Each is triggered only by an explicit UI click and acts solely
+  // on paths git already reports as changed (gitStage/gitUnstage validate; the
+  // commit only touches the staged index). No push, reset, or destructive op
+  // lives here — those stay a manual, out-of-band decision.
+  if (method === 'POST' && path === '/api/git/stage') {
+    const { files } = await readJson(req);
+    if (!Array.isArray(files) || files.some((f) => typeof f !== 'string')) {
+      return send(res, 400, { error: 'files: string[] required' });
+    }
+    return send(res, 200, await gitStage(files as string[]));
+  }
+
+  if (method === 'POST' && path === '/api/git/unstage') {
+    const { files } = await readJson(req);
+    if (!Array.isArray(files) || files.some((f) => typeof f !== 'string')) {
+      return send(res, 400, { error: 'files: string[] required' });
+    }
+    return send(res, 200, await gitUnstage(files as string[]));
+  }
+
+  if (method === 'POST' && path === '/api/git/commit') {
+    const { message } = await readJson(req);
+    if (typeof message !== 'string' || !message.trim()) {
+      return send(res, 400, { error: 'message required' });
+    }
+    return send(res, 200, await gitCommit(message.trim()));
   }
 
   if (method === 'GET' && path === '/api/threads') {

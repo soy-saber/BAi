@@ -3,15 +3,21 @@
  *
  * BAi's agents edit files in the working directory directly, so the single most
  * useful thing the operator can see is "what did they actually change?" This
- * module answers that: a structured `git status` and a per-file `git diff`,
- * nothing that mutates the repo (no add/commit/reset). Writes are a later stage,
- * gated behind explicit user action; this one is safe to call any time.
+ * module answers that: a structured `git status` and a per-file `git diff`.
+ *
+ * It also exposes a small set of *mutating* ops — stage, unstage, commit — for
+ * the operator to act on those changes from the UI. These are deliberately the
+ * non-destructive ones: stage/unstage only move entries in and out of the index,
+ * and commit only records what's already staged (no `-a`, no reset, no clean, no
+ * checkout that could discard work). Every path passed to a write op is first
+ * validated against `git status`, so a request can only ever act on files git
+ * already reports as changed — never an arbitrary path.
  *
  * Design notes:
  *   - We spawn `git` directly (no shell). git is a real `.exe` on Windows, so
  *     CreateProcess finds it without PATHEXT help — unlike the npm-shim CLIs in
- *     adapters/, which need shell:true. With no shell, file paths passed to
- *     `git diff` carry zero shell-injection surface even if a filename is weird.
+ *     adapters/, which need shell:true. With no shell, file paths and the commit
+ *     message passed as argv carry zero shell-injection surface, however odd.
  *   - The status *parser* is pure and exported (`parseStatus`) so it's tested
  *     without spawning anything; the spawn wrappers are the thin part.
  *   - `gitDiff` only diffs paths that actually appear in `git status`, so the
@@ -202,4 +208,91 @@ export async function gitDiff(
   if (file !== undefined) args.push('--', file);
   const run = await runGit(args, cwd);
   return { file, diff: run.ok ? run.stdout : '' };
+}
+
+/** Outcome of a mutating git op. `ok: false` carries git's stderr in `error`. */
+export interface GitWriteResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Validate that every requested path is something git already reports as
+ * changed. This is the guard that keeps the write endpoints from being coaxed
+ * into staging arbitrary files: we only ever act on the working-tree's own
+ * change set, never on a path the operator hand-crafts in a request body.
+ *
+ * Returns the offending path on the first miss, or null when all are present.
+ */
+async function rejectUnknownPaths(files: string[], cwd: string): Promise<string | null> {
+  const status = await gitStatus(cwd);
+  if (!status.repo) return '(not a git repository)';
+  const known = new Set(status.files.map((f) => f.path));
+  // Renames report the new path in status; allow the old path too so a staged
+  // rename can be unstaged by either name.
+  for (const f of status.files) if (f.orig) known.add(f.orig);
+  for (const f of files) if (!known.has(f)) return f;
+  return null;
+}
+
+/**
+ * Stage one or more changed files (`git add -- <paths>`). Paths are checked
+ * against `git status` first, so only real working-tree changes can be staged.
+ */
+export async function gitStage(
+  files: string[],
+  cwd: string = process.cwd(),
+): Promise<GitWriteResult> {
+  if (files.length === 0) return { ok: false, error: 'no files given' };
+  const bad = await rejectUnknownPaths(files, cwd);
+  if (bad) return { ok: false, error: `not a changed file: ${bad}` };
+  const run = await runGit(['add', '--', ...files], cwd);
+  return run.ok
+    ? { ok: true }
+    : { ok: false, error: run.stderr.trim() || `git add (code ${run.code})` };
+}
+
+/**
+ * Unstage one or more files (`git reset -- <paths>`), moving them out of the
+ * index back to the working tree. Non-destructive: it never touches file
+ * contents, only what's staged. We use `git reset` rather than `git restore
+ * --staged` because reset also works before the first commit (no HEAD yet) —
+ * it resets the index entry to HEAD when one exists, or clears it otherwise.
+ * Paths are validated against status.
+ */
+export async function gitUnstage(
+  files: string[],
+  cwd: string = process.cwd(),
+): Promise<GitWriteResult> {
+  if (files.length === 0) return { ok: false, error: 'no files given' };
+  const bad = await rejectUnknownPaths(files, cwd);
+  if (bad) return { ok: false, error: `not a changed file: ${bad}` };
+  const run = await runGit(['reset', '-q', '--', ...files], cwd);
+  return run.ok
+    ? { ok: true }
+    : { ok: false, error: run.stderr.trim() || `git reset (code ${run.code})` };
+}
+
+/**
+ * Commit whatever is currently staged (`git commit -m <message>`). Deliberately
+ * does NOT pass `-a`: it only commits the index, so the operator controls
+ * exactly what lands by staging first. The message goes on its own argv (no
+ * shell), so it's injection-safe regardless of content. Fails cleanly when
+ * there's nothing staged.
+ */
+export async function gitCommit(
+  message: string,
+  cwd: string = process.cwd(),
+): Promise<GitWriteResult & { committed?: string }> {
+  const msg = message.trim();
+  if (!msg) return { ok: false, error: 'empty commit message' };
+  const run = await runGit(['commit', '-m', msg], cwd);
+  if (run.ok) {
+    // git prints "[branch sha] subject" on the first stdout line; surface it.
+    const first = run.stdout.split('\n').find((l) => l.trim().length > 0) ?? '';
+    return { ok: true, committed: first.trim() };
+  }
+  // "nothing to commit" comes back on stdout with a non-zero code; prefer it.
+  const reason = run.stderr.trim() || run.stdout.trim() || `git commit (code ${run.code})`;
+  return { ok: false, error: reason };
 }

@@ -128,6 +128,9 @@ $('#newThread').onclick = async () => {
 // files may have moved. Collapsed state is remembered for the session.
 
 let gitCollapsed = false;
+// Commit message survives panel re-renders (loadGit rebuilds the DOM after every
+// stage/unstage), so typing isn't lost when the file list refreshes.
+let gitCommitDraft = '';
 
 // Two-letter status glyph for a changed file, plus the class that colors it.
 // Prefers the staged (index) char, then the worktree char, then '?' untracked.
@@ -192,11 +195,81 @@ async function loadGit() {
     name.className = 'name';
     name.textContent = f.path;
     name.title = f.orig ? `${f.orig} → ${f.path}` : f.path;
-    row.append(xy, name);
-    row.onclick = () => openDiff(f);
+    // Clicking the name (or glyph) opens the diff; the +/− button stages or
+    // unstages. A file can be partly staged (e.g. "MM"), so we show whichever
+    // action moves it further: stage if anything is unstaged/untracked, else
+    // unstage.
+    const open = document.createElement('span');
+    open.className = 'open';
+    open.append(xy, name);
+    open.onclick = () => openDiff(f);
+    const act = document.createElement('button');
+    act.type = 'button';
+    act.className = 'git-act';
+    const canStage = f.unstaged || f.untracked;
+    act.textContent = canStage ? '+' : '−';
+    act.title = canStage ? `stage ${f.path}` : `unstage ${f.path}`;
+    act.onclick = async (e) => {
+      e.stopPropagation();
+      act.disabled = true;
+      const url = canStage ? '/api/git/stage' : '/api/git/unstage';
+      const r = await api(url, { method: 'POST', body: JSON.stringify({ files: [f.path] }) });
+      if (!r.ok) addStatus(`git: ${r.error || 'action failed'}`, 'fail');
+      await loadGit();
+    };
+    row.append(open, act);
     list.appendChild(row);
   }
   gitPanelEl.appendChild(list);
+
+  // Commit footer: only meaningful when something is staged. Commits exactly
+  // what's in the index (the server's gitCommit never passes -a), so staging is
+  // how the operator controls what lands.
+  const anyStaged = status.files.some((f) => f.staged);
+  const footer = document.createElement('div');
+  footer.className = 'git-commit';
+  const msg = document.createElement('input');
+  msg.type = 'text';
+  msg.id = 'commitMsg';
+  msg.placeholder = anyStaged ? 'Commit message…' : 'Stage files to commit';
+  msg.disabled = !anyStaged;
+  msg.value = gitCommitDraft;
+  msg.oninput = () => {
+    gitCommitDraft = msg.value;
+  };
+  const commitBtn = document.createElement('button');
+  commitBtn.type = 'button';
+  commitBtn.className = 'git-commit-btn';
+  commitBtn.textContent = 'Commit';
+  commitBtn.disabled = !anyStaged;
+  commitBtn.onclick = async () => {
+    const message = msg.value.trim();
+    if (!message) {
+      addStatus('git: commit message required', 'fail');
+      return;
+    }
+    commitBtn.disabled = true;
+    const r = await api('/api/git/commit', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+    if (r.ok) {
+      addStatus(`git: committed — ${r.committed || message}`, 'ok');
+      gitCommitDraft = '';
+    } else {
+      addStatus(`git: ${r.error || 'commit failed'}`, 'fail');
+    }
+    await loadGit();
+  };
+  // Enter in the message field commits.
+  msg.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitBtn.click();
+    }
+  };
+  footer.append(msg, commitBtn);
+  gitPanelEl.appendChild(footer);
 }
 
 // ---- diff overlay -------------------------------------------------------
