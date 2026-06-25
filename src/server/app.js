@@ -216,6 +216,18 @@ function handleEvent(ev, state) {
     case 'routed':
       addStatus(`No @mention — routed to ${ev.agent} by capability.`, 'ok');
       break;
+    case 'file_context': {
+      // A chat-only agent can't read files itself; BAi inlined these for it.
+      const ok = ev.refs.filter((r) => r.ok).map((r) => r.ref);
+      const bad = ev.refs.filter((r) => !r.ok);
+      if (ok.length > 0) {
+        addStatus(`Fed ${ok.length} file(s) to ${ev.agent}: ${ok.join(', ')}`, 'file');
+      }
+      for (const r of bad) {
+        addStatus(`Skipped @file:${r.ref} — ${r.reason}`, 'fail');
+      }
+      break;
+    }
     case 'done':
       if (ev.noMatch) {
         addStatus('No @mention and no capability match — nothing dispatched.', '');

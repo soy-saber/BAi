@@ -50,6 +50,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 15** — Audit pipeline (claude audits → reviewer gates → fallback chain)
 - [x] **Stage 16** — UI polish + @mention autocomplete
 - [x] **Stage 17** — A practice build: a deterministic-referee game with agent players
+- [x] **Stage 18** — Chat-mode degradation: `@file:` context feeding for tool-less models
 
 ## Quick Start
 
@@ -64,6 +65,13 @@ node dist/index.js new "auth refactor"          # -> created thread a1b2c3d4
 node dist/index.js send a1b2c3d4 "@claude design the API, then @codex review it"
 node dist/index.js show a1b2c3d4                # print the transcript
 node dist/index.js threads                      # list threads
+
+# Feed files to a chat-only model (no file tools of its own) with @file:. BAi
+# reads the file and inlines it; the model reasons over it and proposes edits,
+# BAi (or a tool-capable agent) applies them. Mark such agents chat-only with
+# BAI_CHAT_AGENTS, e.g. when your `codex` CLI is bound to a chat-only model:
+#   BAI_CHAT_AGENTS=codex node dist/index.js serve
+node dist/index.js send a1b2c3d4 "@codex review @file:src/server/app.js for bugs"
 
 # Audit pipeline — claude audits, a reviewer gatekeeps, with a fallback chain
 # (claude → codex, falling back to opencode if codex can't be reached):

@@ -6,17 +6,21 @@
     <title>BAi</title>
     <style>
       :root {
-        --bg: #0f1115;
-        --panel: #171a21;
-        --panel-2: #1d212a;
-        --border: #262b36;
-        --text: #e6e9ef;
-        --muted: #8b93a3;
-        --accent: #5b8cff;
-        --accent-soft: rgba(91, 140, 255, 0.14);
-        --green: #3fb950;
+        --bg: #0b0d10;
+        --panel: #12161f;
+        --panel-2: #1a1f2c;
+        --border: #222938;
+        --text: #f0f3f8;
+        --muted: #949eb4;
+        /* accent = the human/brand color; agent = the AI voice. Keeping them
+           distinct makes "you" vs "an agent" legible at a glance. */
+        --accent: #ff7a59;
+        --accent-soft: rgba(255, 122, 89, 0.12);
+        --agent: #5b8cff;
+        --agent-soft: rgba(91, 140, 255, 0.12);
+        --green: #2ea043;
         --red: #f85149;
-        --radius: 10px;
+        --radius: 12px;
       }
       * { box-sizing: border-box; }
       html, body { height: 100%; }
@@ -81,21 +85,24 @@
 
       .entry { margin-bottom: 18px; max-width: 820px; }
       .entry .who .avatar {
-        width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center;
-        font-size: 11px; color: #fff; background: var(--accent);
+        width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center;
+        font-size: 12px; font-weight: 600; color: #fff; background: var(--agent-color);
       }
-      .entry.user .who .avatar { background: #3a4250; }
+      .entry.user .who .avatar { background: #4a5568; }
+      .entry.failed .who .avatar { background: var(--red); }
       .entry .who {
-        font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; gap: 6px;
+        font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+        font-size: 13px;
       }
       .entry.user .who { color: var(--muted); }
-      .entry.agent .who { color: var(--accent); }
+      .entry.agent .who { color: var(--agent-color); }
       .entry pre {
         white-space: pre-wrap; word-wrap: break-word; margin: 0;
-        background: var(--panel); border: 1px solid var(--border);
-        border-radius: var(--radius); padding: 12px 14px; font: inherit;
+        background: var(--panel); border: 1px solid var(--border); padding: 14px 16px;
+        border-radius: var(--radius); font: inherit; line-height: 1.6;
       }
       .entry.user pre { background: var(--panel-2); }
+      .entry.agent pre { border-left: 3px solid var(--agent-color); }
       .entry.failed pre { border-color: var(--red); }
       .entry.live pre::after {
         content: '▋'; color: var(--accent); margin-left: 1px;
@@ -119,6 +126,8 @@
       .status.fail .dot { background: var(--red); animation: none; }
       .status.fail { color: var(--red); }
       .status.tool .dot { background: #d29922; animation: none; }
+      .status.file .dot { background: var(--agent-color); animation: none; }
+      .status.file { color: var(--agent-color); }
       .status .mono { font-family: ui-monospace, monospace; color: var(--accent); }
       @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
@@ -207,7 +216,7 @@
           <button type="submit" id="sendBtn" disabled>Send</button>
         </form>
         <div class="composer-hint">
-          <kbd>@</kbd> to mention an agent · <kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline
+          <kbd>@</kbd> to mention an agent · <kbd>@file:</kbd>path to feed a file · <kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline
         </div>
       </div>
     </main>

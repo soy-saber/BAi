@@ -10,8 +10,9 @@
  */
 
 import type { AgentAdapter, RunOptions } from '../adapters/adapter.js';
+import { loadFileContext } from '../context/file-refs.js';
 import { composePrompt } from '../identity/compose.js';
-import { IDENTITIES } from '../identity/identity.js';
+import { IDENTITIES, resolveMode } from '../identity/identity.js';
 import { extractMemories } from '../identity/memory-extract.js';
 import type { MemoryStore } from '../store/memory-store.js';
 import type { ThreadStore } from '../store/thread-store.js';
@@ -33,6 +34,8 @@ export type DispatchEvent =
   | { kind: 'agent_end'; agent: string; ok: boolean; text: string }
   // No @mention: capability routing picked this agent from its strengths.
   | { kind: 'routed'; agent: string }
+  // Files named with @file: were read and inlined for a chat-only agent.
+  | { kind: 'file_context'; agent: string; refs: { ref: string; ok: boolean; reason?: string }[] }
   | { kind: 'done'; ran: string[]; noMatch: boolean };
 
 /** Reported for every lifecycle event during dispatch. */
@@ -115,7 +118,19 @@ export class Orchestrator {
     if (!adapter) return { text: '', ok: false };
     onEvent?.({ kind: 'agent_start', agent: name, hop });
     const memories = this.memory ? await this.memory.recall(recallKey) : [];
-    const composed = composePrompt(IDENTITIES[name], memories, prompt);
+    const identity = IDENTITIES[name];
+    const mode = resolveMode(identity);
+    // A chat-only agent can't read files itself, so inline any @file: contents.
+    // A tool-capable agent is left to open them itself — no inlining needed.
+    let fileContext = '';
+    if (mode === 'chat') {
+      const loaded = await loadFileContext(prompt);
+      fileContext = loaded.block;
+      if (loaded.refs.length > 0) {
+        onEvent?.({ kind: 'file_context', agent: name, refs: loaded.refs });
+      }
+    }
+    const composed = composePrompt(identity, memories, prompt, { mode, fileContext });
     const { text, ok } = await this.consume(adapter, composed, onEvent, signal);
     await this.store.append(threadId, {
       role: 'agent',

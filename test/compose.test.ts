@@ -33,3 +33,20 @@ test('iron laws appear on every turn regardless of memory', () => {
   assert.match(prompt, /Maine Coon/);
   assert.match(prompt, /Network Boundary/);
 });
+
+test('chat mode adds the no-tools note; agent mode does not', () => {
+  const chat = composePrompt(IDENTITIES.gemini, [], 'analyze it', { mode: 'chat' });
+  assert.match(chat, /NO ability to read files/);
+  const agent = composePrompt(IDENTITIES.claude, [], 'build it', { mode: 'agent' });
+  assert.doesNotMatch(agent, /NO ability to read files/);
+});
+
+test('file context is inlined when provided', () => {
+  const fileContext = '## Referenced files\n### a.ts\n```\nconst x = 1;\n```';
+  const prompt = composePrompt(IDENTITIES.gemini, [], 'explain @file:a.ts', {
+    mode: 'chat',
+    fileContext,
+  });
+  assert.match(prompt, /Referenced files/);
+  assert.match(prompt, /const x = 1;/);
+});
