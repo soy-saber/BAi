@@ -53,6 +53,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 18** — Chat-mode degradation: `@file:` context feeding for tool-less models
 - [x] **Stage 19** — Security audit: one agent finds vulnerability flows, another verifies each
 - [x] **Stage 20** — codex model override (`BAI_CODEX_MODEL`) + runtime no-tools capability hint
+- [x] **Stage 21** — read-only git inspector: see what the agents changed, with per-file diffs in the UI
 
 ## Quick Start
 
@@ -98,6 +99,9 @@ npm test     # routing/store/identity/A2A unit tests (fake adapters, no live CLI
 
 # Or use the web UI:
 node dist/index.js serve     # http://localhost:3003
+#   The sidebar shows a read-only Git panel — the files the agents changed this
+#   session; click one for a colored diff. (Read-only: GET /api/git/status,
+#   GET /api/git/diff?file=. No add/commit — those are a later stage.)
 ```
 
 > The web UI binds to localhost and has **no authentication**; it can spawn

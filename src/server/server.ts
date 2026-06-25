@@ -17,6 +17,11 @@
  *   POST /api/threads/:id/send  -> { message } route to @mentioned agents
  *   POST /api/threads/:id/stream-> { message } same, but streams live
  *                                  dispatch events as newline-delimited JSON
+ *   GET  /api/git/status        -> working-tree changes (porcelain, parsed)
+ *   GET  /api/git/diff?file=    -> unified diff for one file (or the whole tree)
+ *
+ * The git endpoints are READ-ONLY: they shell out to `git status`/`git diff` to
+ * show what the agents changed in the working directory, never to mutate it.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -24,6 +29,7 @@ import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRegistry } from '../adapters/registry.js';
+import { gitDiff, gitStatus } from '../git.js';
 import { IDENTITIES } from '../identity/identity.js';
 import { Orchestrator } from '../routing/orchestrator.js';
 import { runPipeline, securityAuditPipeline } from '../routing/pipeline.js';
@@ -114,6 +120,22 @@ async function route(
       };
     });
     return send(res, 200, agents);
+  }
+
+  if (method === 'GET' && path === '/api/git/status') {
+    // Read-only: what has changed in the working tree right now. Lets the UI
+    // show "what did the agents touch" without the operator leaving the page.
+    const status = await gitStatus();
+    return send(res, 200, status);
+  }
+
+  if (method === 'GET' && path === '/api/git/diff') {
+    // Unified diff for one file (?file=path) or the whole tree when omitted.
+    // The file is passed to `git diff -- <file>` as a separate argv after `--`,
+    // so it can't be read as a flag; git also confines it to the repo.
+    const file = url.searchParams.get('file') ?? undefined;
+    const diff = await gitDiff(file);
+    return send(res, 200, diff);
   }
 
   if (method === 'GET' && path === '/api/threads') {

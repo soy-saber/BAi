@@ -9,6 +9,8 @@ const auditBtn = $('#auditBtn');
 const mentionPop = $('#mentionPop');
 const threadTitleEl = $('#threadTitle');
 const threadSubEl = $('#threadSub');
+const gitPanelEl = $('#gitPanel');
+const diffOverlayEl = $('#diffOverlay');
 
 let activeId = null;
 let activeTitle = '';
@@ -106,6 +108,7 @@ async function selectThread(id, title) {
   await loadThreads();
   const thread = await api(`/api/threads/${id}`);
   renderEntries(thread);
+  loadGit();
   input.focus();
 }
 
@@ -118,6 +121,148 @@ $('#newThread').onclick = async () => {
   });
   await selectThread(thread.id, thread.title);
 };
+
+// ---- git panel ----------------------------------------------------------
+// A read-only window onto the working tree: "what did the agents change?"
+// Refreshed when a thread opens and after every turn/audit, since that's when
+// files may have moved. Collapsed state is remembered for the session.
+
+let gitCollapsed = false;
+
+// Two-letter status glyph for a changed file, plus the class that colors it.
+// Prefers the staged (index) char, then the worktree char, then '?' untracked.
+function gitGlyph(f) {
+  if (f.untracked) return { text: '??', cls: 'untracked' };
+  if (f.staged) return { text: (f.index + (f.worktree.trim() || '')).trim(), cls: 'staged' };
+  return { text: (f.worktree || '').trim() || 'M', cls: 'unstaged' };
+}
+
+async function loadGit() {
+  let status;
+  try {
+    status = await api('/api/git/status');
+  } catch {
+    status = { repo: false, files: [] };
+  }
+  gitPanelEl.innerHTML = '';
+  // Outside a git repo there's nothing useful to show — hide the panel entirely.
+  if (!status?.repo) return;
+
+  if (gitCollapsed) gitPanelEl.classList.add('collapsed');
+  else gitPanelEl.classList.remove('collapsed');
+
+  const head = document.createElement('div');
+  head.className = 'git-head';
+  const caret = document.createElement('span');
+  caret.className = 'caret';
+  caret.textContent = '▾';
+  const label = document.createElement('span');
+  label.className = 'label';
+  label.textContent = 'Changes';
+  const branch = document.createElement('span');
+  branch.className = 'branch';
+  branch.textContent = status.branch || '';
+  const count = document.createElement('span');
+  count.className = 'count';
+  count.textContent = String(status.files.length);
+  head.append(caret, label, branch, count);
+  head.onclick = () => {
+    gitCollapsed = !gitCollapsed;
+    loadGit();
+  };
+  gitPanelEl.appendChild(head);
+
+  const list = document.createElement('div');
+  list.id = 'gitFiles';
+  if (status.files.length === 0) {
+    const clean = document.createElement('div');
+    clean.className = 'git-file';
+    clean.style.cursor = 'default';
+    clean.textContent = 'working tree clean';
+    list.appendChild(clean);
+  }
+  for (const f of status.files) {
+    const row = document.createElement('div');
+    row.className = 'git-file';
+    const g = gitGlyph(f);
+    const xy = document.createElement('span');
+    xy.className = `xy ${g.cls}`;
+    xy.textContent = g.text.padEnd(2, ' ');
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = f.path;
+    name.title = f.orig ? `${f.orig} → ${f.path}` : f.path;
+    row.append(xy, name);
+    row.onclick = () => openDiff(f);
+    list.appendChild(row);
+  }
+  gitPanelEl.appendChild(list);
+}
+
+// ---- diff overlay -------------------------------------------------------
+
+const diffFileEl = $('#diffFile');
+const diffBodyEl = $('#diffBody');
+
+function classifyDiffLine(line) {
+  if (line.startsWith('@@')) return 'hunk';
+  if (line.startsWith('+++') || line.startsWith('---')) return 'meta';
+  if (line.startsWith('diff ') || line.startsWith('index ')) return 'meta';
+  if (line.startsWith('+')) return 'add';
+  if (line.startsWith('-')) return 'del';
+  return '';
+}
+
+function renderDiff(file, payload) {
+  diffFileEl.textContent = file.orig ? `${file.orig} → ${file.path}` : file.path;
+  diffBodyEl.innerHTML = '';
+  if (payload.untracked) {
+    const note = document.createElement('div');
+    note.className = 'diff-empty';
+    note.textContent = 'New untracked file — no previous version to diff against.';
+    diffBodyEl.appendChild(note);
+    return;
+  }
+  const text = (payload.diff || '').replace(/\n$/, '');
+  if (!text) {
+    const note = document.createElement('div');
+    note.className = 'diff-empty';
+    note.textContent = 'No textual diff (binary file, or already staged/committed).';
+    diffBodyEl.appendChild(note);
+    return;
+  }
+  for (const line of text.split('\n')) {
+    const span = document.createElement('span');
+    span.className = `dl ${classifyDiffLine(line)}`;
+    span.textContent = line || ' ';
+    diffBodyEl.appendChild(span);
+  }
+}
+
+async function openDiff(file) {
+  diffFileEl.textContent = file.path;
+  diffBodyEl.innerHTML = '<div class="diff-empty">Loading…</div>';
+  diffOverlayEl.classList.add('open');
+  let payload;
+  try {
+    payload = await api(`/api/git/diff?file=${encodeURIComponent(file.path)}`);
+  } catch {
+    payload = { diff: '' };
+  }
+  renderDiff(file, payload);
+}
+
+function closeDiff() {
+  diffOverlayEl.classList.remove('open');
+}
+
+$('#diffClose').onclick = closeDiff;
+diffOverlayEl.onclick = (e) => {
+  if (e.target === diffOverlayEl) closeDiff();
+};
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && diffOverlayEl.classList.contains('open')) closeDiff();
+});
 
 // ---- log rendering helpers ----------------------------------------------
 
@@ -465,6 +610,7 @@ async function streamInto(url, body) {
     activeController = null;
     setSending(false);
     await loadThreads();
+    loadGit();
   }
 }
 
@@ -501,3 +647,4 @@ auditBtn.onclick = async () => {
 
 loadAgents();
 loadThreads();
+loadGit();
