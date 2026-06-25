@@ -37,7 +37,7 @@ import { buildRegistry } from '../adapters/registry.js';
 import { gitCommit, gitDiff, gitStage, gitStatus, gitUnstage } from '../git.js';
 import { IDENTITIES } from '../identity/identity.js';
 import { Orchestrator } from '../routing/orchestrator.js';
-import { runPipeline, securityAuditPipeline } from '../routing/pipeline.js';
+import { diffReviewPipeline, runPipeline, securityAuditPipeline } from '../routing/pipeline.js';
 import { MemoryStore } from '../store/memory-store.js';
 import { ThreadStore } from '../store/thread-store.js';
 
@@ -243,6 +243,36 @@ async function route(
     const ac = new AbortController();
     req.on('close', () => ac.abort());
     await runPipeline(orch, auditMatch[1] ?? '', target.trim(), securityAuditPipeline(), {
+      onEvent: (event) => res.write(`${JSON.stringify(event)}\n`),
+      onPipelineEvent: (event) => res.write(`${JSON.stringify({ kind: 'pipeline', ...event })}\n`),
+      signal: ac.signal,
+    });
+    res.end();
+    return;
+  }
+
+  const reviewMatch = path.match(/^\/api\/threads\/([^/]+)\/review$/);
+  if (method === 'POST' && reviewMatch) {
+    // Review the working-tree diff: read it here (optionally for one ?file=),
+    // then run the reviewer → gatekeeper pipeline over it. The diff travels in
+    // the prompt so a chat-only reviewer sees the change inline. Streams the
+    // same NDJSON dispatch + pipeline events as /audit.
+    const file = url.searchParams.get('file') ?? undefined;
+    const { diff, untracked } = await gitDiff(file);
+    if (untracked) {
+      return send(res, 400, { error: `${file} is untracked — stage a baseline first` });
+    }
+    if (!diff.trim()) {
+      return send(res, 400, { error: file ? `no changes in ${file}` : 'working tree clean' });
+    }
+    const target = file ? `Changes to ${file}:\n\n${diff}` : diff;
+    res.writeHead(200, {
+      'content-type': 'application/x-ndjson; charset=utf-8',
+      'cache-control': 'no-cache',
+    });
+    const ac = new AbortController();
+    req.on('close', () => ac.abort());
+    await runPipeline(orch, reviewMatch[1] ?? '', target, diffReviewPipeline(), {
       onEvent: (event) => res.write(`${JSON.stringify(event)}\n`),
       onPipelineEvent: (event) => res.write(`${JSON.stringify({ kind: 'pipeline', ...event })}\n`),
       signal: ac.signal,

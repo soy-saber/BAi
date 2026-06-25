@@ -232,6 +232,90 @@ export function securityAuditPipeline(
   ];
 }
 
+/**
+ * The diff-review pipeline: a two-pass review of a concrete code change.
+ *
+ *   1. review  — the reviewer (Claude) reads a unified diff and judges the
+ *                change itself: correctness, regressions, security, and whether
+ *                it actually does what the change description claims. It cites
+ *                hunks, not whole files.
+ *   2. gatekeep— a second agent (GPT/codex, falling back to opencode) checks the
+ *                review: are its objections real, did it miss a problem the diff
+ *                introduces, and is the change safe to land? It ends with a
+ *                ship/hold verdict.
+ *
+ * Where `securityAuditPipeline` hunts vulnerabilities in existing code, this one
+ * is scoped to a *diff* — the lines that actually changed — so it's the natural
+ * companion to the git inspector: feed it `git diff` and ask "is this landable?"
+ *
+ * The diff travels in the task text (the CLI/UI fills it from `gitDiff`), so a
+ * chat-only reviewer sees the change inline; a tool-capable one can also open
+ * the surrounding files for context.
+ */
+export function diffReviewPipeline(
+  agents: { reviewer?: string; gatekeeper?: string; gatekeeperFallback?: string } = {},
+): Stage[] {
+  const reviewer = agents.reviewer ?? 'claude';
+  const gatekeeper = agents.gatekeeper ?? 'codex';
+  const gatekeeperFallback = agents.gatekeeperFallback ?? 'opencode';
+
+  return [
+    {
+      name: 'review',
+      primary: reviewer,
+      buildPrompt: (task) =>
+        [
+          'You are reviewing a CODE CHANGE shown as a unified diff below. Review the',
+          'CHANGE, not the whole file: focus on the lines that were added/removed and',
+          'their immediate effect. Look for:',
+          '',
+          '  - Correctness: does the new code do what it appears to intend? Off-by-one,',
+          '    wrong condition, missing await, swapped args, broken edge case.',
+          '  - Regressions: does it break behavior the old code relied on, or a caller',
+          '    elsewhere? Removed guard, changed signature, narrowed type.',
+          '  - Security: does the change introduce injection, missing validation, a',
+          '    leaked secret, a widened permission?',
+          '  - Tests/docs: does a behavior change land without a matching test or note?',
+          '',
+          'Cite the hunk (file + the @@ line or the changed text). List findings most',
+          'serious first, each with severity [blocker|major|minor|nit]. If the change is',
+          'clean and landable, say so plainly.',
+          '',
+          '## The change to review (unified diff)',
+          task,
+        ].join('\n'),
+    },
+    {
+      name: 'gatekeep',
+      primary: gatekeeper,
+      fallbacks: [gatekeeperFallback],
+      buildPrompt: (task, prior) => {
+        const review = prior.find((r) => r.stage === 'review');
+        return [
+          'You are the GATEKEEPER on a code change. A reviewer judged the diff (their',
+          'review is below). Your job is to decide whether the change is safe to LAND:',
+          '',
+          '  - Are the reviewer’s objections real, or overstated? Drop the ones that',
+          '    do not hold; a blocker that is actually a nit wastes the author’s time.',
+          '  - Did the review MISS anything the diff introduces — a regression, an',
+          '    unhandled case, a security gap? Add it, citing the hunk.',
+          '  - Net it out: is the change correct and safe as written?',
+          '',
+          'End with a verdict line:',
+          '  `VERDICT: ship` if it can land as-is, or',
+          '  `VERDICT: hold — <the must-fix items>` if it must change first.',
+          '',
+          '## The change under review (unified diff)',
+          task,
+          '',
+          `## The reviewer’s review (by ${review?.agent ?? 'the reviewer'})`,
+          review?.text ?? '(no review produced)',
+        ].join('\n');
+      },
+    },
+  ];
+}
+
 export function auditPipeline(
   agents: { auditor?: string; gatekeeper?: string; gatekeeperFallback?: string } = {},
 ): Stage[] {

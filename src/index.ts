@@ -15,10 +15,12 @@
 import { buildRegistry } from './adapters/registry.js';
 import type { GameEvent } from './game/runner.js';
 import { render as renderBoard } from './game/tictactoe.js';
+import { gitDiff } from './git.js';
 import type { DispatchEvent } from './routing/orchestrator.js';
 import { Orchestrator } from './routing/orchestrator.js';
 import {
   auditPipeline,
+  diffReviewPipeline,
   type PipelineEvent,
   runPipeline,
   securityAuditPipeline,
@@ -111,6 +113,7 @@ const USAGE = `Usage:
   bai retrospect <agent>            distill recent memory into insights
   bai audit <threadId> "<target>"   run the audit pipeline (claude → codex/opencode gatekeep)
   bai secaudit <threadId> "<target>"   security audit: claude finds vuln flows → codex/opencode verifies each
+  bai review <threadId> [file]      review the working-tree diff (claude reviews → codex/opencode gatekeeps ship/hold)
   bai play <agentX> <agentO>        play tic-tac-toe: two agents, a deterministic referee
   bai serve [port]                  start the web UI (default http://localhost:3003)`;
 
@@ -191,6 +194,38 @@ async function main(): Promise<void> {
         process.exitCode = 1;
       } else {
         console.log('\nsecurity audit complete.');
+      }
+      break;
+    }
+    case 'review': {
+      // Review the working-tree diff: reviewer judges the change, a gatekeeper
+      // decides ship/hold. The diff is read here (not by the agents) so the
+      // change travels in the prompt — a chat-only reviewer sees it inline.
+      const [threadId, file] = rest;
+      if (!threadId) {
+        return fail('Usage: bai review <threadId> [file]   review the working-tree diff');
+      }
+      const { diff, untracked } = await gitDiff(file);
+      if (untracked) {
+        return fail(`${file} is untracked — nothing to diff. Stage or commit a baseline first.`);
+      }
+      if (!diff.trim()) {
+        console.log(file ? `(no changes in ${file})` : '(working tree clean — nothing to review)');
+        break;
+      }
+      const target = file ? `Changes to ${file}:\n\n${diff}` : diff;
+      const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
+      console.log(`> review diff${file ? `: ${file}` : ' (working tree)'}`);
+      const results = await runPipeline(orch, threadId, target, diffReviewPipeline(), {
+        onEvent: render,
+        onPipelineEvent: renderPipeline,
+      });
+      const last = results[results.length - 1];
+      if (!last?.ok) {
+        console.error('\ndiff review did not complete (a stage exhausted its agents).');
+        process.exitCode = 1;
+      } else {
+        console.log('\ndiff review complete.');
       }
       break;
     }

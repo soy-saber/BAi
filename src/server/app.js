@@ -222,6 +222,33 @@ async function loadGit() {
   }
   gitPanelEl.appendChild(list);
 
+  // Review button: feed the whole working-tree diff to the diff-review pipeline
+  // (reviewer judges the change → gatekeeper says ship/hold), streamed into the
+  // log like a normal turn. Only meaningful when there's something to review and
+  // a thread is open to host the transcript; shares the one in-flight slot.
+  const hasChanges = status.files.some((f) => !f.untracked);
+  if (hasChanges) {
+    const reviewRow = document.createElement('div');
+    reviewRow.className = 'git-review';
+    const reviewBtn = document.createElement('button');
+    reviewBtn.type = 'button';
+    reviewBtn.className = 'git-review-btn';
+    reviewBtn.textContent = '👁 Review changes';
+    reviewBtn.title = activeId
+      ? 'Reviewer judges the working-tree diff, a gatekeeper says ship/hold'
+      : 'Open a thread first';
+    reviewBtn.disabled = !activeId || !!activeController;
+    reviewBtn.onclick = async () => {
+      if (!activeId || activeController) return;
+      setSending(true);
+      addEntry('user', 'you', '👁 review working-tree changes');
+      addStatus('Diff review: reviewer judges the change, gatekeeper says ship/hold.', 'ok');
+      await streamInto(`/api/threads/${activeId}/review`, {});
+    };
+    reviewRow.appendChild(reviewBtn);
+    gitPanelEl.appendChild(reviewRow);
+  }
+
   // Commit footer: only meaningful when something is staged. Commits exactly
   // what's in the index (the server's gitCommit never passes -a), so staging is
   // how the operator controls what lands.

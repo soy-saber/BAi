@@ -55,6 +55,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 20** — codex model override (`BAI_CODEX_MODEL`) + runtime no-tools capability hint
 - [x] **Stage 21** — read-only git inspector: see what the agents changed, with per-file diffs in the UI
 - [x] **Stage 22** — git writes from the UI: stage/unstage files and commit, gated behind explicit clicks
+- [x] **Stage 23** — diff-review pipeline: a reviewer judges the working-tree diff, a gatekeeper says ship/hold
 
 ## Quick Start
 
@@ -93,6 +94,11 @@ node dist/index.js audit a1b2c3d4 "src/server/server.ts"
 # Feed the code with @file: so a tool-less verifier still sees it:
 node dist/index.js secaudit a1b2c3d4 "@file:src/server/server.ts"
 
+# Diff review — review the working-tree change: a reviewer judges the diff
+# (correctness/regressions/security), a gatekeeper says ship/hold. Pass a file
+# to scope it, or omit for the whole tree. Reads `git diff` and feeds it inline:
+node dist/index.js review a1b2c3d4 src/git.ts
+
 # Practice game — two agents play tic-tac-toe; the referee is deterministic code:
 node dist/index.js play claude codex
 
@@ -102,8 +108,10 @@ npm test     # routing/store/identity/A2A unit tests (fake adapters, no live CLI
 node dist/index.js serve     # http://localhost:3003
 #   The sidebar shows a Git panel — the files the agents changed this session;
 #   click one for a colored diff, +/− to stage/unstage, then commit the index.
+#   "👁 Review changes" runs the diff-review pipeline over the working tree.
 #   (GET /api/git/status, GET /api/git/diff?file=; POST /api/git/{stage,unstage,
-#   commit}. Writes act only on paths git already reports; no push/reset/-a.)
+#   commit} and /api/threads/:id/review. Writes act only on paths git already
+#   reports; no push/reset/-a.)
 ```
 
 > The web UI binds to localhost and has **no authentication**; it can spawn

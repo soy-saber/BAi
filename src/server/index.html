@@ -138,6 +138,14 @@
       .git-commit .git-commit-btn {
         flex: none; min-height: 0; padding: 6px 12px; font-size: 12px; border-radius: 7px;
       }
+      .git-review { padding: 2px 14px 4px; }
+      .git-review .git-review-btn {
+        width: 100%; min-height: 0; padding: 7px 10px; font-size: 12px; border-radius: 7px;
+        background: transparent; color: var(--muted); border: 1px solid var(--border);
+      }
+      .git-review .git-review-btn:hover:not(:disabled) {
+        background: var(--agent-soft); color: var(--text); border-color: var(--agent-color);
+      }
 
       /* diff overlay */
       .diff-overlay {
