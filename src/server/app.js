@@ -5,6 +5,7 @@ const legendEl = $('#legend');
 const logEl = $('#log');
 const input = $('#message');
 const sendBtn = $('#sendBtn');
+const auditBtn = $('#auditBtn');
 const mentionPop = $('#mentionPop');
 const threadTitleEl = $('#threadTitle');
 const threadSubEl = $('#threadSub');
@@ -25,6 +26,7 @@ async function api(path, opts) {
 function setComposerEnabled(on) {
   input.disabled = !on;
   sendBtn.disabled = !on;
+  auditBtn.disabled = !on;
 }
 
 // ---- agents + legend ----------------------------------------------------
@@ -228,6 +230,21 @@ function handleEvent(ev, state) {
       }
       break;
     }
+    case 'pipeline': {
+      // Audit-pipeline lifecycle: a stage starting, a fallback, or a stage end.
+      if (ev.stage_start) {
+        addStatus(`stage "${ev.stage_start.stage}" → ${ev.stage_start.agent}`, 'stage');
+      } else if (ev.fallback) {
+        const { stage, from, to, reason } = ev.fallback;
+        addStatus(`[${stage}] ${from} couldn't run (${reason}) → falling back to ${to}`, 'fail');
+      } else if (ev.stage_end) {
+        const r = ev.stage_end;
+        const over = r.failedOver.length ? ` (after ${r.failedOver.join(', ')} failed)` : '';
+        if (r.ok) addStatus(`stage "${r.stage}" done by ${r.agent}${over}`, 'ok');
+        else addStatus(`stage "${r.stage}" EXHAUSTED — tried ${r.failedOver.join(', ')}`, 'fail');
+      }
+      break;
+    }
     case 'done':
       if (ev.noMatch) {
         addStatus('No @mention and no capability match — nothing dispatched.', '');
@@ -379,6 +396,9 @@ let activeController = null;
 
 function setSending(sending) {
   input.disabled = sending;
+  // The audit button shares the one in-flight slot with send, so it's only
+  // usable when nothing is running and a thread is open.
+  auditBtn.disabled = sending || !activeId;
   if (sending) {
     sendBtn.textContent = 'Stop';
     sendBtn.classList.add('stop');
@@ -388,6 +408,55 @@ function setSending(sending) {
     sendBtn.classList.remove('stop');
     sendBtn.disabled = !activeId;
     input.focus();
+  }
+}
+
+// Stream an NDJSON dispatch/pipeline feed into the live log. Shared by send and
+// audit: both hit a streaming endpoint that emits one JSON event per line.
+async function streamInto(url, body) {
+  const state = { statusByAgent: {}, liveByAgent: {} };
+  const controller = new AbortController();
+  activeController = controller;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok || !res.body) {
+      addStatus('Request failed — is the server running?', 'fail');
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          handleEvent(JSON.parse(trimmed), state);
+        } catch {
+          /* ignore partial/non-JSON line */
+        }
+      }
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      addStatus('Stopped.', '');
+    } else {
+      addStatus(`Connection lost: ${err?.message || err}`, 'fail');
+    }
+  } finally {
+    activeController = null;
+    setSending(false);
+    await loadThreads();
   }
 }
 
@@ -404,51 +473,22 @@ $('#composer').onsubmit = async (ev) => {
   closeMention();
   setSending(true);
   addEntry('user', 'you', message);
+  await streamInto(`/api/threads/${activeId}/stream`, { message });
+};
 
-  const state = { statusByAgent: {}, liveByAgent: {} };
-  const controller = new AbortController();
-  activeController = controller;
-  try {
-    const res = await fetch(`/api/threads/${activeId}/stream`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message }),
-      signal: controller.signal,
-    });
-    if (!res.ok || !res.body) {
-      addStatus('Request failed — is the server running?', 'fail');
-    } else {
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() ?? '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            handleEvent(JSON.parse(trimmed), state);
-          } catch {
-            /* ignore partial/non-JSON line */
-          }
-        }
-      }
-    }
-  } catch (err) {
-    if (err?.name === 'AbortError') {
-      addStatus('Stopped.', '');
-    } else {
-      addStatus(`Connection lost: ${err?.message || err}`, 'fail');
-    }
-  } finally {
-    activeController = null;
-    setSending(false);
-    await loadThreads();
-  }
+// Audit: run the security-audit pipeline (find vuln flows → verify each) over
+// the composer text, which may carry @file: refs naming the code to audit.
+auditBtn.onclick = async () => {
+  if (activeController) return;
+  const target = input.value.trim();
+  if (!target || !activeId) return;
+  input.value = '';
+  autoGrow();
+  closeMention();
+  setSending(true);
+  addEntry('user', 'you', `🛡 audit: ${target}`);
+  addStatus('Security audit: find vulnerability flows, then verify each.', 'ok');
+  await streamInto(`/api/threads/${activeId}/audit`, { target });
 };
 
 loadAgents();

@@ -17,7 +17,12 @@ import type { GameEvent } from './game/runner.js';
 import { render as renderBoard } from './game/tictactoe.js';
 import type { DispatchEvent } from './routing/orchestrator.js';
 import { Orchestrator } from './routing/orchestrator.js';
-import { auditPipeline, type PipelineEvent, runPipeline } from './routing/pipeline.js';
+import {
+  auditPipeline,
+  type PipelineEvent,
+  runPipeline,
+  securityAuditPipeline,
+} from './routing/pipeline.js';
 import { type MemoryKind, MemoryStore } from './store/memory-store.js';
 import { ThreadStore } from './store/thread-store.js';
 
@@ -99,6 +104,7 @@ const USAGE = `Usage:
   bai memory ["<query>"]            recall memory (most recent if no query)
   bai retrospect <agent>            distill recent memory into insights
   bai audit <threadId> "<target>"   run the audit pipeline (claude → codex/opencode gatekeep)
+  bai secaudit <threadId> "<target>"   security audit: claude finds vuln flows → codex/opencode verifies each
   bai play <agentX> <agentO>        play tic-tac-toe: two agents, a deterministic referee
   bai serve [port]                  start the web UI (default http://localhost:3003)`;
 
@@ -156,6 +162,29 @@ async function main(): Promise<void> {
         process.exitCode = 1;
       } else {
         console.log('\naudit pipeline complete.');
+      }
+      break;
+    }
+    case 'secaudit': {
+      const [threadId, ...words] = rest;
+      const target = words.join(' ').trim();
+      if (!threadId || !target) {
+        return fail(
+          'Usage: bai secaudit <threadId> "<target — describe the code, with @file: refs>"',
+        );
+      }
+      const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
+      console.log(`> security audit: ${target}`);
+      const results = await runPipeline(orch, threadId, target, securityAuditPipeline(), {
+        onEvent: render,
+        onPipelineEvent: renderPipeline,
+      });
+      const last = results[results.length - 1];
+      if (!last?.ok) {
+        console.error('\nsecurity audit did not complete (a stage exhausted its agents).');
+        process.exitCode = 1;
+      } else {
+        console.log('\nsecurity audit complete.');
       }
       break;
     }

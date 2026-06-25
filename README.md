@@ -51,6 +51,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 16** — UI polish + @mention autocomplete
 - [x] **Stage 17** — A practice build: a deterministic-referee game with agent players
 - [x] **Stage 18** — Chat-mode degradation: `@file:` context feeding for tool-less models
+- [x] **Stage 19** — Security audit: one agent finds vulnerability flows, another verifies each
 
 ## Quick Start
 
@@ -76,6 +77,11 @@ node dist/index.js send a1b2c3d4 "@codex review @file:src/server/app.js for bugs
 # Audit pipeline — claude audits, a reviewer gatekeeps, with a fallback chain
 # (claude → codex, falling back to opencode if codex can't be reached):
 node dist/index.js audit a1b2c3d4 "src/server/server.ts"
+
+# Security audit — claude finds vulnerability flows (source → sink), then codex
+# verifies each flow actually exists & is exploitable (opencode if codex is down).
+# Feed the code with @file: so a tool-less verifier still sees it:
+node dist/index.js secaudit a1b2c3d4 "@file:src/server/server.ts"
 
 # Practice game — two agents play tic-tac-toe; the referee is deterministic code:
 node dist/index.js play claude codex

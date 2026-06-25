@@ -140,6 +140,98 @@ export async function runPipeline(
  * Agent ids are parameterized so this isn't hard-wired to specific adapters,
  * but the defaults match the requested flow: claude → codex → opencode.
  */
+/**
+ * The security-audit pipeline: a two-pass vulnerability review.
+ *
+ *   1. find    — the auditor (Claude, tool-capable: reads files itself) hunts
+ *                vulnerabilities and, for each, spells out the complete
+ *                data-flow (source → sink → path) so it can be checked.
+ *   2. verify  — the verifier (GPT/codex, falling back to opencode) does NOT
+ *                redo the audit; it independently checks whether each reported
+ *                vulnerability's WHOLE flow actually exists and is exploitable,
+ *                marking each confirmed / false-positive / uncertain.
+ *
+ * This is the sharper sibling of `auditPipeline`: instead of a generic "is this
+ * audit sound" gatekeep, the second stage validates the vulnerability flow
+ * itself — the difference between "the report looks reasonable" and "I traced
+ * it and the bug is real / it's a false positive."
+ *
+ * Pair it with `@file:` references in the target: a chat-only verifier (e.g. a
+ * codex CLI bound to a tool-less model) gets those files inlined automatically
+ * (see file-refs / Identity.mode), so it can actually trace the flow; the
+ * tool-capable auditor opens them itself.
+ */
+export function securityAuditPipeline(
+  agents: { finder?: string; verifier?: string; verifierFallback?: string } = {},
+): Stage[] {
+  const finder = agents.finder ?? 'claude';
+  const verifier = agents.verifier ?? 'codex';
+  const verifierFallback = agents.verifierFallback ?? 'opencode';
+
+  return [
+    {
+      name: 'find',
+      primary: finder,
+      buildPrompt: (task) =>
+        [
+          'You are a security auditor doing a FIRST-PASS code audit. Find real',
+          'vulnerabilities — injection, auth/access-control gaps, path traversal,',
+          'unsafe deserialization, secret exposure, SSRF, and the like — not style',
+          'nits. For EACH finding, lay out the complete data-flow so a second',
+          'reviewer can independently confirm or reject it:',
+          '',
+          '  #N — <short title>  [severity: critical|high|medium|low]',
+          '  - Source:  where attacker-controlled / untrusted input enters (file:line).',
+          '  - Sink:    the dangerous operation it reaches (file:line).',
+          '  - Flow:    how the input travels source → sink, and why nothing',
+          '             sanitizes, validates, or escapes it on the way.',
+          '  - Trigger: a concrete example input/request that exploits it.',
+          '  - Fix:     the specific change that closes it.',
+          '',
+          'Number findings, most severe first. Only report a vulnerability when you',
+          'can trace the whole flow end to end; if you cannot, say so rather than',
+          'guessing. If the code is clean, say so plainly.',
+          '',
+          '## Audit target',
+          task,
+        ].join('\n'),
+    },
+    {
+      name: 'verify',
+      primary: verifier,
+      fallbacks: [verifierFallback],
+      buildPrompt: (task, prior) => {
+        const find = prior.find((r) => r.stage === 'find');
+        return [
+          'You are the VERIFIER. Another agent did a first-pass security audit',
+          '(below). Your job is NOT to redo it — it is to validate each reported',
+          'vulnerability by checking whether the ENTIRE flow actually exists and is',
+          'exploitable:',
+          '',
+          '  - Is the source genuinely attacker-controlled and reachable in real use?',
+          '  - Does the tainted data truly reach the sink WITHOUT being sanitized,',
+          '    validated, or escaped somewhere on the path?',
+          '  - Is it exploitable in practice, or blocked by something the audit missed?',
+          '',
+          'For each finding, give one line:',
+          '  #N — CONFIRMED | FALSE POSITIVE | UNCERTAIN(need: <what>) — <one-sentence why>',
+          '',
+          'Then note anything the audit MISSED, in the same flow format. Do not',
+          'rubber-stamp: a false positive caught is as valuable as a real bug found.',
+          'End with a verdict line:',
+          '  `VERDICT: <#confirmed / #false-positive / #uncertain — overall risk>`',
+          '',
+          '## Original audit target',
+          task,
+          '',
+          `## First-pass audit to verify (by ${find?.agent ?? 'the auditor'})`,
+          find?.text ?? '(no audit produced)',
+        ].join('\n');
+      },
+    },
+  ];
+}
+
 export function auditPipeline(
   agents: { auditor?: string; gatekeeper?: string; gatekeeperFallback?: string } = {},
 ): Stage[] {

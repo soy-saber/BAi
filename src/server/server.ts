@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { buildRegistry } from '../adapters/registry.js';
 import { IDENTITIES } from '../identity/identity.js';
 import { Orchestrator } from '../routing/orchestrator.js';
+import { runPipeline, securityAuditPipeline } from '../routing/pipeline.js';
 import { MemoryStore } from '../store/memory-store.js';
 import { ThreadStore } from '../store/thread-store.js';
 
@@ -167,6 +168,30 @@ async function route(
       },
       ac.signal,
     );
+    res.end();
+    return;
+  }
+
+  const auditMatch = path.match(/^\/api\/threads\/([^/]+)\/audit$/);
+  if (method === 'POST' && auditMatch) {
+    const { target } = await readJson(req);
+    if (typeof target !== 'string' || !target.trim()) {
+      return send(res, 400, { error: 'target required' });
+    }
+    // Same NDJSON streaming as /stream, but the events are a mix of dispatch
+    // lifecycle events (per-agent, from each stage's turn) and pipeline events
+    // (stage_start / fallback / stage_end). The UI's handleEvent renders both.
+    res.writeHead(200, {
+      'content-type': 'application/x-ndjson; charset=utf-8',
+      'cache-control': 'no-cache',
+    });
+    const ac = new AbortController();
+    req.on('close', () => ac.abort());
+    await runPipeline(orch, auditMatch[1] ?? '', target.trim(), securityAuditPipeline(), {
+      onEvent: (event) => res.write(`${JSON.stringify(event)}\n`),
+      onPipelineEvent: (event) => res.write(`${JSON.stringify({ kind: 'pipeline', ...event })}\n`),
+      signal: ac.signal,
+    });
     res.end();
     return;
   }

@@ -128,6 +128,8 @@
       .status.tool .dot { background: #d29922; animation: none; }
       .status.file .dot { background: var(--agent-color); animation: none; }
       .status.file { color: var(--agent-color); }
+      .status.stage .dot { background: var(--accent); animation: none; }
+      .status.stage { color: var(--accent); font-weight: 600; }
       .status .mono { font-family: ui-monospace, monospace; color: var(--accent); }
       @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
@@ -150,6 +152,8 @@
       button:disabled { opacity: .45; cursor: default; }
       button.stop { background: var(--red); }
       button.stop:hover { background: #ff6259; }
+      button.audit { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+      button.audit:hover:not(:disabled) { background: var(--agent-soft); color: var(--text); border-color: var(--agent-color); }
       .composer-hint { color: var(--muted); font-size: 11.5px; margin-top: 8px; }
       .composer-hint kbd {
         background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
@@ -213,10 +217,11 @@
             <div class="mention-pop" id="mentionPop"></div>
             <textarea id="message" rows="1" placeholder="@claude design it, then @codex review…" autocomplete="off" disabled></textarea>
           </div>
+          <button type="button" id="auditBtn" class="audit" title="Security audit: one agent finds vulnerability flows, another verifies each" disabled>🛡 Audit</button>
           <button type="submit" id="sendBtn" disabled>Send</button>
         </form>
         <div class="composer-hint">
-          <kbd>@</kbd> to mention an agent · <kbd>@file:</kbd>path to feed a file · <kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline
+          <kbd>@</kbd> to mention an agent · <kbd>@file:</kbd>path to feed a file · <kbd>🛡 Audit</kbd> to find+verify vulns · <kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline
         </div>
       </div>
     </main>
