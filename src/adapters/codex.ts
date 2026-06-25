@@ -28,7 +28,7 @@ interface CodexItem {
   command?: string;
 }
 
-const spec: CliSpec = {
+export const codexSpec: CliSpec = {
   name: 'codex',
   bin: 'codex',
   buildArgs(permission) {
@@ -39,7 +39,16 @@ const spec: CliSpec = {
         : permission === 'acceptEdits'
           ? 'workspace-write'
           : 'read-only';
-    return ['exec', '--json', '--sandbox', sandbox, '-'];
+    const args = ['exec', '--json', '--sandbox', sandbox];
+    // Optional model override (Config Immutability: deployment differences live
+    // in env, not source — and not by editing the user's ~/.codex/config.toml).
+    // `BAI_CODEX_MODEL=gpt-5.5` makes codex run that model via `-m`, reusing the
+    // provider/base_url already in config. Useful when config pins a chat-only
+    // model (e.g. gemini-3.1-pro) but you want a tool-capable one for this run.
+    const model = process.env.BAI_CODEX_MODEL?.trim();
+    if (model) args.push('-m', model);
+    args.push('-'); // prompt on stdin
+    return args;
   },
   mapEvent(event, agent): AgentMessage[] {
     if (event.type === 'item.completed') {
@@ -69,8 +78,8 @@ const spec: CliSpec = {
 };
 
 export const codexAdapter: AgentAdapter = {
-  name: spec.name,
+  name: codexSpec.name,
   run(prompt: string, options?: RunOptions) {
-    return runCli(spec, prompt, options);
+    return runCli(codexSpec, prompt, options);
   },
 };

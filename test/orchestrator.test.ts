@@ -201,3 +201,54 @@ test('A2A: the hop cap stops a two-agent @-loop', async () => {
     assert.deepEqual(result.ran, ['claude', 'codex', 'claude', 'codex']);
   });
 });
+
+test('emits no_tools when a tool-capable agent completes a turn calling no tools', async () => {
+  await withStore(async (store) => {
+    // claude is agent-mode by default; here it only talks, never calls a tool.
+    const adapters = {
+      claude: fakeAdapter('claude', [
+        { type: 'text', agent: 'claude', text: 'I would edit the file…' },
+        { type: 'result', agent: 'claude', ok: true },
+      ]),
+    };
+    const orch = new Orchestrator(store, adapters);
+    const thread = await store.create('test');
+
+    const seen: string[] = [];
+    await orch.dispatch(thread.id, '@claude fix the bug', (e) => seen.push(e.kind));
+    assert.ok(seen.includes('no_tools'), 'expected a no_tools hint for a zero-tool agent turn');
+  });
+});
+
+test('does not emit no_tools when the agent actually used a tool', async () => {
+  await withStore(async (store) => {
+    const adapters = {
+      claude: fakeAdapter('claude', [
+        { type: 'tool_use', agent: 'claude', tool: 'Write', input: {} },
+        { type: 'result', agent: 'claude', ok: true },
+      ]),
+    };
+    const orch = new Orchestrator(store, adapters);
+    const thread = await store.create('test');
+
+    const seen: string[] = [];
+    await orch.dispatch(thread.id, '@claude fix the bug', (e) => seen.push(e.kind));
+    assert.ok(!seen.includes('no_tools'), 'a tool-using turn must not be flagged');
+  });
+});
+
+test('does not emit no_tools when the zero-tool turn failed (it ran nothing)', async () => {
+  await withStore(async (store) => {
+    const adapters = {
+      claude: fakeAdapter('claude', [
+        { type: 'result', agent: 'claude', ok: false, error: 'boom' },
+      ]),
+    };
+    const orch = new Orchestrator(store, adapters);
+    const thread = await store.create('test');
+
+    const seen: string[] = [];
+    await orch.dispatch(thread.id, '@claude fix the bug', (e) => seen.push(e.kind));
+    assert.ok(!seen.includes('no_tools'), 'a failed turn must not trigger the chat-only hint');
+  });
+});

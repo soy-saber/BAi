@@ -52,6 +52,12 @@ function render(event: DispatchEvent): void {
     case 'routed':
       console.log(`(no @mention — routed to @${event.agent} by capability)`);
       break;
+    case 'no_tools':
+      console.error(
+        `  ⚠ ${event.agent} ran as a tool-capable agent but called no tools — it may be ` +
+          `chat-only. Consider BAI_CHAT_AGENTS=${event.agent} to feed it files instead.`,
+      );
+      break;
     case 'done':
       if (event.noMatch) console.log('(no @mention and no capability match — nothing dispatched)');
       break;

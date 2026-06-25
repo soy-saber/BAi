@@ -67,14 +67,32 @@ export const IDENTITIES: Record<string, Identity> = {
 };
 
 /**
- * Resolve an identity's effective mode, allowing an env override without
- * editing code (Config Immutability: deployment differences live in env, not
- * source). `BAI_CHAT_AGENTS=codex,gemini` forces those agents to chat-only —
- * useful when, say, your `codex` CLI is bound to a chat-only model like
- * gemini-3.1-pro that can't actually run tools.
+ * Models we know to be chat-only (no tool/file/command ability) regardless of
+ * which CLI fronts them. Used so that pointing a tool-capable CLI at one of
+ * these (e.g. `BAI_CODEX_MODEL=gemini-3.1-pro`) auto-degrades to chat mode.
+ * This is a best-effort hint, not the source of truth: a model's real ability
+ * is only knowable at runtime, so the orchestrator also watches for a turn that
+ * ran as 'agent' yet called no tools, and flags it (see ADR 0022).
+ */
+const KNOWN_CHAT_MODEL_RE = /gemini/i;
+
+/**
+ * Resolve an identity's effective mode, allowing env overrides without editing
+ * code (Config Immutability: deployment differences live in env, not source).
+ *
+ * Precedence, highest first:
+ *   1. `BAI_CHAT_AGENTS=codex,gemini` — forces those agents to chat-only. This
+ *      is the one-key manual downgrade for when a model turns out to be tool-
+ *      less in practice, whatever we guessed.
+ *   2. `BAI_CODEX_MODEL=<model>` — when codex is pointed at a known chat-only
+ *      model (e.g. gemini-3.1-pro) it auto-degrades to chat; pointed at a tool-
+ *      capable one (e.g. gpt-5.5) it stays an agent. This is the optimistic
+ *      default: switching models to get a model's hands implies wanting them.
+ *   3. the identity's declared `mode`, defaulting to 'agent'.
  */
 export function resolveMode(identity: Identity | undefined): AgentMode {
   if (!identity) return 'agent';
+
   const override = process.env.BAI_CHAT_AGENTS;
   if (override) {
     const chatSet = new Set(
@@ -85,6 +103,13 @@ export function resolveMode(identity: Identity | undefined): AgentMode {
     );
     if (chatSet.has(identity.agent)) return 'chat';
   }
+
+  // codex's effective mode follows the model it's actually running.
+  if (identity.agent === 'codex') {
+    const model = process.env.BAI_CODEX_MODEL?.trim();
+    if (model) return KNOWN_CHAT_MODEL_RE.test(model) ? 'chat' : 'agent';
+  }
+
   return identity.mode ?? 'agent';
 }
 

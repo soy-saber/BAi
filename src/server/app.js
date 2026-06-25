@@ -230,6 +230,14 @@ function handleEvent(ev, state) {
       }
       break;
     }
+    case 'no_tools':
+      // Ran as a tool-capable agent but called no tools — the model may be
+      // chat-only in practice. Point the operator at the one-key downgrade.
+      addStatus(
+        `${ev.agent} called no tools this turn — if it's actually chat-only, set BAI_CHAT_AGENTS=${ev.agent} to feed files instead.`,
+        'fail',
+      );
+      break;
     case 'pipeline': {
       // Audit-pipeline lifecycle: a stage starting, a fallback, or a stage end.
       if (ev.stage_start) {

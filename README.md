@@ -52,6 +52,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 17** — A practice build: a deterministic-referee game with agent players
 - [x] **Stage 18** — Chat-mode degradation: `@file:` context feeding for tool-less models
 - [x] **Stage 19** — Security audit: one agent finds vulnerability flows, another verifies each
+- [x] **Stage 20** — codex model override (`BAI_CODEX_MODEL`) + runtime no-tools capability hint
 
 ## Quick Start
 
@@ -73,6 +74,13 @@ node dist/index.js threads                      # list threads
 # BAI_CHAT_AGENTS, e.g. when your `codex` CLI is bound to a chat-only model:
 #   BAI_CHAT_AGENTS=codex node dist/index.js serve
 node dist/index.js send a1b2c3d4 "@codex review @file:src/server/app.js for bugs"
+
+# Point the `codex` CLI at a different model without editing ~/.codex/config.toml.
+# BAI_CODEX_MODEL injects `codex exec -m <model>` (reusing the configured
+# provider). codex auto-degrades to chat mode for a known tool-less model and
+# stays a tool-capable agent otherwise; if it then runs a turn calling no tools,
+# BAi warns you to downgrade it with BAI_CHAT_AGENTS=codex.
+#   BAI_CODEX_MODEL=gpt-5.5 node dist/index.js serve
 
 # Audit pipeline — claude audits, a reviewer gatekeeps, with a fallback chain
 # (claude → codex, falling back to opencode if codex can't be reached):

@@ -36,6 +36,9 @@ export type DispatchEvent =
   | { kind: 'routed'; agent: string }
   // Files named with @file: were read and inlined for a chat-only agent.
   | { kind: 'file_context'; agent: string; refs: { ref: string; ok: boolean; reason?: string }[] }
+  // An agent ran as 'agent' (tool-capable) but called no tools all turn — it may
+  // actually be chat-only. Hint: downgrade it with BAI_CHAT_AGENTS=<agent>.
+  | { kind: 'no_tools'; agent: string }
   | { kind: 'done'; ran: string[]; noMatch: boolean };
 
 /** Reported for every lifecycle event during dispatch. */
@@ -86,22 +89,24 @@ export class Orchestrator {
     prompt: string,
     onEvent?: OnEvent,
     signal?: AbortSignal,
-  ): Promise<{ text: string; ok: boolean }> {
+  ): Promise<{ text: string; ok: boolean; tools: number }> {
     const parts: string[] = [];
     let ok = true;
+    let tools = 0;
     const runOptions = signal ? { ...this.runOptions, signal } : this.runOptions;
     for await (const message of adapter.run(prompt, runOptions)) {
       onEvent?.({ kind: 'message', agent: adapter.name, message });
       if (message.type === 'text') {
         parts.push(message.text);
       } else if (message.type === 'tool_use') {
+        tools++;
         parts.push(`[tool: ${message.tool}]`);
       } else if (message.type === 'result') {
         ok = message.ok;
         if (!message.ok && message.error) parts.push(`[error: ${message.error}]`);
       }
     }
-    return { text: parts.join('\n').trim(), ok };
+    return { text: parts.join('\n').trim(), ok, tools };
   }
 
   /** Run one agent on a prompt, persist its reply, and return its output text. */
@@ -131,7 +136,15 @@ export class Orchestrator {
       }
     }
     const composed = composePrompt(identity, memories, prompt, { mode, fileContext });
-    const { text, ok } = await this.consume(adapter, composed, onEvent, signal);
+    const { text, ok, tools } = await this.consume(adapter, composed, onEvent, signal);
+    // We treated this agent as tool-capable, but it completed a turn without
+    // calling any tool — a sign the backing model may actually be chat-only
+    // (e.g. a custom-provider name that isn't really agentic). Surface it so the
+    // operator can flip BAI_CHAT_AGENTS=<agent> to feed files instead of betting
+    // the model can read them. Only when it succeeded: a failed turn ran nothing.
+    if (ok && mode === 'agent' && tools === 0) {
+      onEvent?.({ kind: 'no_tools', agent: name });
+    }
     await this.store.append(threadId, {
       role: 'agent',
       agent: name,
