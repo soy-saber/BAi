@@ -16,7 +16,7 @@ import { IDENTITIES, resolveMode } from '../identity/identity.js';
 import { extractMemories } from '../identity/memory-extract.js';
 import type { MemoryStore } from '../store/memory-store.js';
 import type { ThreadStore } from '../store/thread-store.js';
-import type { AgentMessage } from '../types.js';
+import type { AgentMessage, Usage } from '../types.js';
 import { detectHandoffs, type Handoff, handoffPrompt } from './a2a.js';
 import { pickAgent } from './capability.js';
 import { parseMentions } from './mentions.js';
@@ -39,6 +39,9 @@ export type DispatchEvent =
   // An agent ran as 'agent' (tool-capable) but called no tools all turn — it may
   // actually be chat-only. Hint: downgrade it with BAI_CHAT_AGENTS=<agent>.
   | { kind: 'no_tools'; agent: string }
+  // Per-turn accounting: always carries wall-clock ms; usage is best-effort
+  // (present only when the CLI reported tokens/cost in its terminal event).
+  | { kind: 'turn_stats'; agent: string; ms: number; usage?: Usage }
   | { kind: 'done'; ran: string[]; noMatch: boolean };
 
 /** Reported for every lifecycle event during dispatch. */
@@ -89,10 +92,11 @@ export class Orchestrator {
     prompt: string,
     onEvent?: OnEvent,
     signal?: AbortSignal,
-  ): Promise<{ text: string; ok: boolean; tools: number }> {
+  ): Promise<{ text: string; ok: boolean; tools: number; usage?: Usage }> {
     const parts: string[] = [];
     let ok = true;
     let tools = 0;
+    let usage: Usage | undefined;
     const runOptions = signal ? { ...this.runOptions, signal } : this.runOptions;
     for await (const message of adapter.run(prompt, runOptions)) {
       onEvent?.({ kind: 'message', agent: adapter.name, message });
@@ -103,10 +107,11 @@ export class Orchestrator {
         parts.push(`[tool: ${message.tool}]`);
       } else if (message.type === 'result') {
         ok = message.ok;
+        if (message.usage) usage = message.usage;
         if (!message.ok && message.error) parts.push(`[error: ${message.error}]`);
       }
     }
-    return { text: parts.join('\n').trim(), ok, tools };
+    return { text: parts.join('\n').trim(), ok, tools, usage };
   }
 
   /** Run one agent on a prompt, persist its reply, and return its output text. */
@@ -136,7 +141,9 @@ export class Orchestrator {
       }
     }
     const composed = composePrompt(identity, memories, prompt, { mode, fileContext });
-    const { text, ok, tools } = await this.consume(adapter, composed, onEvent, signal);
+    const startedAt = Date.now();
+    const { text, ok, tools, usage } = await this.consume(adapter, composed, onEvent, signal);
+    const ms = Date.now() - startedAt;
     // We treated this agent as tool-capable, but it completed a turn without
     // calling any tool — a sign the backing model may actually be chat-only
     // (e.g. a custom-provider name that isn't really agentic). Surface it so the
@@ -150,6 +157,8 @@ export class Orchestrator {
       agent: name,
       text: text || '(no output)',
       ts: Date.now(),
+      ms,
+      ...(usage ? { usage } : {}),
     });
     // Sediment any decisions/lessons from a successful turn into shared memory,
     // so a later turn's recall can surface them (the write side of recall).
@@ -158,6 +167,9 @@ export class Orchestrator {
         await this.memory.record(m.kind, name, m.text);
       }
     }
+    // Surface timing/usage live so a UI can show "took 12.3s · 1.2k tok" without
+    // re-reading the thread. ms is always present; usage only when the CLI gave it.
+    onEvent?.({ kind: 'turn_stats', agent: name, ms, ...(usage ? { usage } : {}) });
     onEvent?.({ kind: 'agent_end', agent: name, ok, text: text || '(no output)' });
     return { text, ok };
   }

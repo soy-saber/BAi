@@ -252,3 +252,56 @@ test('does not emit no_tools when the zero-tool turn failed (it ran nothing)', a
     assert.ok(!seen.includes('no_tools'), 'a failed turn must not trigger the chat-only hint');
   });
 });
+
+test('emits a turn_stats event with a wall-clock ms before agent_end', async () => {
+  await withStore(async (store) => {
+    const adapters = {
+      claude: fakeAdapter('claude', [{ type: 'result', agent: 'claude', ok: true, text: 'done' }]),
+    };
+    const orch = new Orchestrator(store, adapters);
+    const thread = await store.create('test');
+
+    const events: { kind: string; ms?: number }[] = [];
+    await orch.dispatch(thread.id, '@claude go', (e) =>
+      events.push(e as { kind: string; ms?: number }),
+    );
+
+    const stats = events.find((e) => e.kind === 'turn_stats');
+    assert.ok(stats, 'expected a turn_stats event');
+    // ms is orchestrator-measured, so it is always present and non-negative
+    // even when the CLI reports no usage of its own.
+    assert.equal(typeof stats?.ms, 'number');
+    assert.ok((stats?.ms ?? -1) >= 0, 'ms should be a non-negative wall-clock measurement');
+
+    // It must arrive before agent_end so a UI can attach the footer to the turn.
+    const statsIdx = events.findIndex((e) => e.kind === 'turn_stats');
+    const endIdx = events.findIndex((e) => e.kind === 'agent_end');
+    assert.ok(statsIdx >= 0 && endIdx >= 0 && statsIdx < endIdx, 'turn_stats precedes agent_end');
+
+    // And it is persisted on the entry, so a reload still shows the timing.
+    const saved = await store.get(thread.id);
+    assert.equal(typeof saved?.entries[1]?.ms, 'number');
+  });
+});
+
+test('passes the CLI-reported usage through to turn_stats and the saved entry', async () => {
+  await withStore(async (store) => {
+    const usage = { inputTokens: 100, outputTokens: 40, totalTokens: 140, costUsd: 0.012 };
+    const adapters = {
+      claude: fakeAdapter('claude', [
+        { type: 'result', agent: 'claude', ok: true, text: 'done', usage },
+      ]),
+    };
+    const orch = new Orchestrator(store, adapters);
+    const thread = await store.create('test');
+
+    let captured: typeof usage | undefined;
+    await orch.dispatch(thread.id, '@claude go', (e) => {
+      if (e.kind === 'turn_stats') captured = e.usage as typeof usage;
+    });
+
+    assert.deepEqual(captured, usage, 'turn_stats carries the adapter-reported usage verbatim');
+    const saved = await store.get(thread.id);
+    assert.deepEqual(saved?.entries[1]?.usage, usage, 'usage is persisted on the entry');
+  });
+});

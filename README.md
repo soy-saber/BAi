@@ -6,6 +6,8 @@
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
+> English · [中文](README.zh-CN.md)
+
 ## What is this?
 
 BAi turns isolated AI agent CLIs (Claude Code, Codex, Gemini, ...) into a team
@@ -56,6 +58,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 21** — read-only git inspector: see what the agents changed, with per-file diffs in the UI
 - [x] **Stage 22** — git writes from the UI: stage/unstage files and commit, gated behind explicit clicks
 - [x] **Stage 23** — diff-review pipeline: a reviewer judges the working-tree diff, a gatekeeper says ship/hold
+- [x] **Stage 24** — per-turn timing + token/cost stats, surfaced in the CLI and the UI
 
 ## Quick Start
 
@@ -120,7 +123,9 @@ node dist/index.js serve     # http://localhost:3003
 
 The web UI streams live status while agents work — which agent is running, its
 tool calls, and whether it succeeded or failed to connect — instead of waiting
-for the whole turn to finish.
+for the whole turn to finish. Each finished turn shows a footer with its
+wall-clock time and, when the CLI reports it, token count and cost
+(e.g. `12.3s · 1.2k tok · $0.04`); the same line prints under each turn on the CLI.
 
 ## Supported agents
 

@@ -66,7 +66,16 @@ export const codexSpec: CliSpec = {
       return [];
     }
     if (event.type === 'turn.completed') {
-      return [{ type: 'result', agent, ok: true }];
+      // codex rolls up token counts on turn.completed:
+      //   { usage: { input_tokens, output_tokens, ... } }
+      const u = event.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+      const usage = u
+        ? {
+            ...(typeof u.input_tokens === 'number' ? { inputTokens: u.input_tokens } : {}),
+            ...(typeof u.output_tokens === 'number' ? { outputTokens: u.output_tokens } : {}),
+          }
+        : undefined;
+      return [{ type: 'result', agent, ok: true, usage }];
     }
     if (event.type === 'turn.failed' || event.type === 'error') {
       const message = typeof event.message === 'string' ? event.message : undefined;

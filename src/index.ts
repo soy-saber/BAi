@@ -27,8 +27,26 @@ import {
 } from './routing/pipeline.js';
 import { type MemoryKind, MemoryStore } from './store/memory-store.js';
 import { ThreadStore } from './store/thread-store.js';
+import type { Usage } from './types.js';
 
 const ADAPTERS = buildRegistry();
+
+/** Format a turn's timing + best-effort token/cost stats as one compact line. */
+function formatStats(ms: number, usage?: Usage): string {
+  const parts = [`${(ms / 1000).toFixed(1)}s`];
+  if (usage) {
+    const tok =
+      usage.totalTokens ??
+      (usage.inputTokens !== undefined || usage.outputTokens !== undefined
+        ? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
+        : undefined);
+    if (tok !== undefined) parts.push(`${tok >= 1000 ? `${(tok / 1000).toFixed(1)}k` : tok} tok`);
+    if (typeof usage.costUsd === 'number') {
+      parts.push(`$${usage.costUsd.toFixed(usage.costUsd < 0.01 ? 4 : 2)}`);
+    }
+  }
+  return parts.join(' · ');
+}
 
 /** Render a dispatch lifecycle event to the terminal in real time. */
 function render(event: DispatchEvent): void {
@@ -53,6 +71,9 @@ function render(event: DispatchEvent): void {
       break;
     case 'routed':
       console.log(`(no @mention — routed to @${event.agent} by capability)`);
+      break;
+    case 'turn_stats':
+      console.log(`  · ${formatStats(event.ms, event.usage)}`);
       break;
     case 'no_tools':
       console.error(

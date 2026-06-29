@@ -55,7 +55,26 @@ export const geminiSpec: CliSpec = {
     }
 
     if (event.type === 'result') {
-      if (event.status === 'success') return [{ type: 'result', agent, ok: true }];
+      if (event.status === 'success') {
+        // gemini reports token counts under `stats`, but the exact shape has
+        // shifted across CLI versions. Probe the common spots defensively and
+        // emit whatever we can find; missing stats just means no usage line.
+        const stats = event.stats as Record<string, unknown> | undefined;
+        const tokens = (stats?.tokens ?? stats?.usage) as Record<string, unknown> | undefined;
+        const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
+        const input = num(tokens?.prompt ?? tokens?.input ?? tokens?.promptTokenCount);
+        const output = num(tokens?.candidates ?? tokens?.output ?? tokens?.candidatesTokenCount);
+        const total = num(tokens?.total ?? tokens?.totalTokenCount);
+        const usage =
+          input !== undefined || output !== undefined || total !== undefined
+            ? {
+                ...(input !== undefined ? { inputTokens: input } : {}),
+                ...(output !== undefined ? { outputTokens: output } : {}),
+                ...(total !== undefined ? { totalTokens: total } : {}),
+              }
+            : undefined;
+        return [{ type: 'result', agent, ok: true, ...(usage ? { usage } : {}) }];
+      }
       const err = event.error as { message?: string; type?: string } | undefined;
       const message = err?.message ?? err?.type ?? 'gemini error';
       return [{ type: 'result', agent, ok: false, error: message }];

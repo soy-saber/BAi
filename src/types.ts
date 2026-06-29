@@ -24,6 +24,22 @@ export interface ToolUseMessage {
   input: unknown;
 }
 
+/**
+ * Best-effort token/cost accounting for one turn. Every field is optional: the
+ * CLIs report usage in different shapes (and some not at all), so an adapter
+ * fills in whatever its terminal event carries and leaves the rest undefined.
+ * Wall-clock duration is NOT here — the orchestrator measures that itself, so
+ * it's available even for a CLI that reports no usage (see ThreadEntry.ms).
+ */
+export interface Usage {
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Total tokens, when the CLI reports a single figure rather than a split. */
+  totalTokens?: number;
+  /** Cost in USD, when the CLI reports it (e.g. Claude's total_cost_usd). */
+  costUsd?: number;
+}
+
 /** Terminal message: the agent finished (or errored) for this turn. */
 export interface ResultMessage {
   type: 'result';
@@ -34,6 +50,8 @@ export interface ResultMessage {
   text?: string;
   /** Error description when ok === false. */
   error?: string;
+  /** Token/cost accounting, when the CLI's terminal event carries it. */
+  usage?: Usage;
 }
 
 /** Anything the adapter emits as it processes a turn. */
@@ -50,6 +68,10 @@ export interface ThreadEntry {
   text: string;
   /** Epoch milliseconds. */
   ts: number;
+  /** Wall-clock duration of an agent turn, in ms (orchestrator-measured). */
+  ms?: number;
+  /** Token/cost accounting for an agent turn, when the CLI reported it. */
+  usage?: Usage;
 }
 
 /** An isolated conversation / task workspace. */

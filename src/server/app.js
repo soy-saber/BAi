@@ -94,7 +94,15 @@ function renderEntries(thread) {
   }
   logEl.innerHTML = '';
   for (const e of thread.entries) {
-    addEntry(e.role, e.role === 'user' ? 'you' : e.agent || 'agent', e.text);
+    const wrapper = addEntry(e.role, e.role === 'user' ? 'you' : e.agent || 'agent', e.text);
+    // Agent turns carry persisted timing/usage (Stage 24); show it as a footer
+    // so a reloaded thread reads the same as the live stream did.
+    if (e.role === 'agent' && typeof e.ms === 'number') {
+      const foot = document.createElement('div');
+      foot.className = 'stats';
+      foot.textContent = formatStats(e.ms, e.usage);
+      wrapper.appendChild(foot);
+    }
   }
   logEl.scrollTop = logEl.scrollHeight;
 }
@@ -415,6 +423,23 @@ function addLiveEntry(who) {
   return { wrapper: div, pre };
 }
 
+// Compact human label for a turn's timing + (best-effort) token/cost stats.
+// ms is always present; tokens/cost only when the CLI reported them.
+function formatStats(ms, usage) {
+  const parts = [`${(ms / 1000).toFixed(1)}s`];
+  if (usage) {
+    const { inputTokens, outputTokens, totalTokens, costUsd } = usage;
+    const tok =
+      totalTokens ??
+      (inputTokens !== undefined || outputTokens !== undefined
+        ? (inputTokens || 0) + (outputTokens || 0)
+        : undefined);
+    if (tok !== undefined) parts.push(`${tok >= 1000 ? `${(tok / 1000).toFixed(1)}k` : tok} tok`);
+    if (typeof costUsd === 'number') parts.push(`$${costUsd.toFixed(costUsd < 0.01 ? 4 : 2)}`);
+  }
+  return parts.join(' · ');
+}
+
 // Render one dispatch lifecycle event into the live log.
 function handleEvent(ev, state) {
   switch (ev.kind) {
@@ -446,17 +471,32 @@ function handleEvent(ev, state) {
       }
       break;
     }
+    case 'turn_stats':
+      // Arrives just before agent_end; stash it so agent_end can footer the
+      // bubble with "took 12.3s · 1.2k tok · $0.04".
+      state.statsByAgent[ev.agent] = { ms: ev.ms, usage: ev.usage };
+      break;
     case 'agent_end': {
       const s = state.statusByAgent[ev.agent];
       if (s) s.remove();
       state.statusByAgent[ev.agent] = null;
       const live = state.liveByAgent[ev.agent];
+      let wrapper;
       if (live) {
         live.wrapper.classList.remove('live');
         if (!ev.ok) live.wrapper.classList.add('failed');
         state.liveByAgent[ev.agent] = null;
+        wrapper = live.wrapper;
       } else {
-        addEntry(ev.ok ? 'agent' : 'agent failed', ev.agent, ev.text);
+        wrapper = addEntry(ev.ok ? 'agent' : 'agent failed', ev.agent, ev.text);
+      }
+      const stats = state.statsByAgent[ev.agent];
+      if (stats && wrapper) {
+        const foot = document.createElement('div');
+        foot.className = 'stats';
+        foot.textContent = formatStats(stats.ms, stats.usage);
+        wrapper.appendChild(foot);
+        state.statsByAgent[ev.agent] = null;
       }
       break;
     }
@@ -667,7 +707,7 @@ function setSending(sending) {
 // Stream an NDJSON dispatch/pipeline feed into the live log. Shared by send and
 // audit: both hit a streaming endpoint that emits one JSON event per line.
 async function streamInto(url, body) {
-  const state = { statusByAgent: {}, liveByAgent: {} };
+  const state = { statusByAgent: {}, liveByAgent: {}, statsByAgent: {} };
   const controller = new AbortController();
   activeController = controller;
   try {

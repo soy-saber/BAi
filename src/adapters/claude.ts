@@ -48,7 +48,19 @@ const spec: CliSpec = {
     }
     if (event.type === 'result') {
       const text = typeof event.result === 'string' ? event.result : undefined;
-      return [{ type: 'result', agent, ok: event.is_error !== true, text }];
+      // Claude's result event carries token usage and a rolled-up cost. Shape:
+      //   { usage: { input_tokens, output_tokens, ... }, total_cost_usd }
+      const u = event.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+      const cost = typeof event.total_cost_usd === 'number' ? event.total_cost_usd : undefined;
+      const usage =
+        u || cost !== undefined
+          ? {
+              ...(typeof u?.input_tokens === 'number' ? { inputTokens: u.input_tokens } : {}),
+              ...(typeof u?.output_tokens === 'number' ? { outputTokens: u.output_tokens } : {}),
+              ...(cost !== undefined ? { costUsd: cost } : {}),
+            }
+          : undefined;
+      return [{ type: 'result', agent, ok: event.is_error !== true, text, usage }];
     }
     // system events (init, api_retry, ...) carry no user-facing payload.
     return [];

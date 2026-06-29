@@ -27,6 +27,8 @@ interface OpenCodePart {
   tool?: string;
   reason?: string;
   state?: { input?: unknown };
+  /** step_finish may carry token usage; shape varies, so all fields optional. */
+  tokens?: { input?: number; output?: number; total?: number };
 }
 
 /** step_finish reasons that end the turn (anything but more tool calls). */
@@ -71,7 +73,20 @@ const spec: CliSpec = {
       const reason = part?.reason;
       // Only a terminal reason ends the turn; 'tool-calls' means keep going.
       if (typeof reason === 'string' && TERMINAL_REASONS.has(reason)) {
-        return [{ type: 'result', agent, ok: reason !== 'error' && reason !== 'aborted' }];
+        // step_finish may carry token counts; surface whatever it has.
+        const t = part?.tokens;
+        const usage =
+          t &&
+          (typeof t.input === 'number' ||
+            typeof t.output === 'number' ||
+            typeof t.total === 'number')
+            ? {
+                ...(typeof t.input === 'number' ? { inputTokens: t.input } : {}),
+                ...(typeof t.output === 'number' ? { outputTokens: t.output } : {}),
+                ...(typeof t.total === 'number' ? { totalTokens: t.total } : {}),
+              }
+            : undefined;
+        return [{ type: 'result', agent, ok: reason !== 'error' && reason !== 'aborted', usage }];
       }
       return [];
     }
