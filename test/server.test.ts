@@ -339,6 +339,108 @@ test('POST /api/threads/:id/review rejects a clean tree (400)', {
   }
 });
 
+// ---- pipeline endpoints (streamed NDJSON: dispatch + pipeline events) ------
+
+test('POST /api/threads/:id/audit rejects an empty target (400)', async () => {
+  const { store, dir } = await tempStore();
+  try {
+    const deps: RouteDeps = { store, orch: new Orchestrator(store, {}) };
+    const thread = (await call(deps, 'POST', '/api/threads', { title: 't' }).then((r) =>
+      r.json(),
+    )) as { id: string };
+    const res = await call(deps, 'POST', `/api/threads/${thread.id}/audit`, { target: '   ' });
+    assert.equal(res.status, 400);
+    assert.deepEqual(res.json(), { error: 'target required' });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('POST /api/threads/:id/audit streams both pipeline stages over NDJSON', async () => {
+  const { store, dir } = await tempStore();
+  try {
+    // The security-audit pipeline is find (claude) → verify (codex). Scripting
+    // both lets the whole pipeline run end-to-end with no CLI.
+    const orch = new Orchestrator(store, {
+      claude: fakeAdapter('claude', [
+        { type: 'text', agent: 'claude', text: 'found a SQLi flow' },
+        { type: 'result', agent: 'claude', ok: true },
+      ]),
+      codex: fakeAdapter('codex', [
+        { type: 'text', agent: 'codex', text: 'confirmed, it is exploitable' },
+        { type: 'result', agent: 'codex', ok: true },
+      ]),
+    });
+    const deps: RouteDeps = { store, orch };
+    const thread = (await call(deps, 'POST', '/api/threads', { title: 't' }).then((r) =>
+      r.json(),
+    )) as { id: string };
+
+    const res = await call(deps, 'POST', `/api/threads/${thread.id}/audit`, {
+      target: 'audit src/server/server.ts',
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers['content-type'] ?? '', /ndjson/);
+    const events = res.ndjson() as Array<{ kind: string; stage_start?: { stage: string } }>;
+    // Pipeline events are wrapped as { kind: 'pipeline', ... }; both stages of
+    // the security-audit pipeline (find, verify) should appear.
+    const stages = events
+      .filter((e) => e.kind === 'pipeline' && e.stage_start)
+      .map((e) => e.stage_start?.stage);
+    assert.deepEqual(stages, ['find', 'verify']);
+    // And the dispatch lifecycle of each stage's turn is interleaved in.
+    assert.ok(
+      events.some((e) => e.kind === 'agent_start'),
+      'expected per-turn dispatch events alongside the pipeline events',
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('POST /api/threads/:id/review runs the pipeline over a dirty tree', {
+  skip: !gitAvailable(),
+}, async () => {
+  const { store, dir } = await tempStore();
+  const repo = makeRepo();
+  try {
+    // A committed baseline, then an uncommitted edit, so `git diff` is non-empty
+    // and the diff-review pipeline (review → gatekeep) has something to chew on.
+    writeFileSync(join(repo, 'a.txt'), 'one\n');
+    const run = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
+    run('add', 'a.txt');
+    run('commit', '-m', 'baseline');
+    writeFileSync(join(repo, 'a.txt'), 'one\ntwo\n');
+
+    const orch = new Orchestrator(store, {
+      claude: fakeAdapter('claude', [
+        { type: 'text', agent: 'claude', text: 'the change looks fine' },
+        { type: 'result', agent: 'claude', ok: true },
+      ]),
+      codex: fakeAdapter('codex', [
+        { type: 'text', agent: 'codex', text: 'SHIP' },
+        { type: 'result', agent: 'codex', ok: true },
+      ]),
+    });
+    const deps: RouteDeps = { store, orch, gitCwd: repo };
+    const thread = (await call(deps, 'POST', '/api/threads', { title: 't' }).then((r) =>
+      r.json(),
+    )) as { id: string };
+
+    const res = await call(deps, 'POST', `/api/threads/${thread.id}/review`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers['content-type'] ?? '', /ndjson/);
+    const events = res.ndjson() as Array<{ kind: string; stage_start?: { stage: string } }>;
+    const stages = events
+      .filter((e) => e.kind === 'pipeline' && e.stage_start)
+      .map((e) => e.stage_start?.stage);
+    assert.deepEqual(stages, ['review', 'gatekeep']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('unknown route returns 404', async () => {
   const { store, dir } = await tempStore();
   try {

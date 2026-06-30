@@ -62,6 +62,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 25** — make the HTTP layer testable: export `route`, inject deps, 12 endpoint tests
 - [x] **Stage 26** — a turn budget for A2A handoffs: bound total fan-out, not just chain depth
 - [x] **Stage 27** — make the A2A guards operator-tunable via `BAI_MAX_HOPS` / `BAI_MAX_TURNS`
+- [x] **Stage 28** — cover the server's pipeline endpoints (`/audit`, `/review`) with NDJSON streaming tests
 
 ## Quick Start
 

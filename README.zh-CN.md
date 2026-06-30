@@ -59,6 +59,7 @@ BAi 把彼此孤立的 AI 智能体命令行工具（Claude Code、Codex、Gemin
 - [x] **Stage 25** — 可测试的 HTTP 层：路由函数导出并接收注入的依赖，无需真实 CLI 或工作区即可覆盖各端点
 - [x] **Stage 26** — A2A 交接的轮次预算：用 `maxTurns` 限制总扇出，而不只是链路深度，预算耗尽时发 `budget_exhausted` 事件
 - [x] **Stage 27** — A2A 防护旋钮可由操作者经 `BAI_MAX_HOPS` / `BAI_MAX_TURNS` 环境变量调节
+- [x] **Stage 28** — 给 server 的流水线端点（`/audit`、`/review`）补上 NDJSON 流式测试覆盖
 
 ## 快速开始
 
