@@ -81,6 +81,12 @@ function render(event: DispatchEvent): void {
           `chat-only. Consider BAI_CHAT_AGENTS=${event.agent} to feed it files instead.`,
       );
       break;
+    case 'budget_exhausted':
+      console.error(
+        `  ⚠ turn budget spent after ${event.ran} turns — stopped ${event.dropped.length} ` +
+          `queued handoff(s): ${event.dropped.join(', ')}. Raise maxTurns to allow a longer chain.`,
+      );
+      break;
     case 'done':
       if (event.noMatch) console.log('(no @mention and no capability match — nothing dispatched)');
       break;

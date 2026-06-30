@@ -42,6 +42,10 @@ export type DispatchEvent =
   // Per-turn accounting: always carries wall-clock ms; usage is best-effort
   // (present only when the CLI reported tokens/cost in its terminal event).
   | { kind: 'turn_stats'; agent: string; ms: number; usage?: Usage }
+  // The A2A turn budget ran out: handoffs were still queued but we stopped to
+  // bound fan-out. `dropped` is the agents we declined to run. Distinct from a
+  // natural finish — the conversation had more to say, we capped it.
+  | { kind: 'budget_exhausted'; ran: number; dropped: string[] }
   | { kind: 'done'; ran: string[]; noMatch: boolean };
 
 /** Reported for every lifecycle event during dispatch. */
@@ -62,6 +66,14 @@ export interface OrchestratorOptions {
   /** Max A2A handoff depth before we stop, to prevent @-loops. Default 3. */
   maxHops?: number;
   /**
+   * Hard cap on total agent turns in one dispatch, across all handoffs. Where
+   * maxHops bounds the *depth* of a handoff chain, this bounds the *total* work:
+   * each turn can @-mention several agents, so depth alone permits an
+   * exponential fan-out. When the budget runs out, queued handoffs are dropped
+   * and a `budget_exhausted` event fires. Default 12.
+   */
+  maxTurns?: number;
+  /**
    * When a message names no agent, route it to the best match by strengths
    * instead of running nobody. An explicit @mention always wins; this only
    * applies to the zero-mention case. Default true.
@@ -73,6 +85,7 @@ export class Orchestrator {
   private readonly runOptions: RunOptions;
   private readonly memory?: MemoryStore;
   private readonly maxHops: number;
+  private readonly maxTurns: number;
   private readonly autoRoute: boolean;
 
   constructor(
@@ -83,6 +96,7 @@ export class Orchestrator {
     this.runOptions = options.runOptions ?? {};
     this.memory = options.memory;
     this.maxHops = options.maxHops ?? 3;
+    this.maxTurns = options.maxTurns ?? 12;
     this.autoRoute = options.autoRoute ?? true;
   }
 
@@ -241,6 +255,17 @@ export class Orchestrator {
       if (!this.adapters[handoff.to]) continue;
       // Stop draining the queue if the whole dispatch was cancelled.
       if (signal?.aborted) break;
+      // Total-work budget, independent of hop depth: each turn can fan out to
+      // several agents, so depth alone allows an exponential blow-up. When the
+      // budget is spent, drop whatever is still queued and say so — the chain
+      // had more to run, we capped it rather than letting it sprawl.
+      if (ran.length >= this.maxTurns) {
+        // The current handoff was already shifted off, so count it among the
+        // dropped along with whatever else is still queued.
+        const dropped = [...new Set([handoff.to, ...queue.map((h) => h.to)])];
+        onEvent?.({ kind: 'budget_exhausted', ran: ran.length, dropped });
+        break;
+      }
 
       const prompt = handoff.from === 'user' ? message : handoffPrompt(handoff, message);
       const { text: output } = await this.runTurn(

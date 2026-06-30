@@ -59,7 +59,8 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 22** — git writes from the UI: stage/unstage files and commit, gated behind explicit clicks
 - [x] **Stage 23** — diff-review pipeline: a reviewer judges the working-tree diff, a gatekeeper says ship/hold
 - [x] **Stage 24** — per-turn timing + token/cost stats, surfaced in the CLI and the UI
-- [x] **Stage 25** — testable HTTP layer: the router is exported and takes injected deps, so endpoints are covered without a live CLI or the real working tree
+- [x] **Stage 25** — make the HTTP layer testable: export `route`, inject deps, 12 endpoint tests
+- [x] **Stage 26** — a turn budget for A2A handoffs: bound total fan-out, not just chain depth
 
 ## Quick Start
 

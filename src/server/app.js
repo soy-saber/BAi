@@ -538,6 +538,14 @@ function handleEvent(ev, state) {
       }
       break;
     }
+    case 'budget_exhausted':
+      // The handoff chain still had agents queued, but the turn budget ran out.
+      // Say what we dropped so it's clear this was a cap, not a natural finish.
+      addStatus(
+        `Turn budget reached after ${ev.ran} turns — dropped ${ev.dropped.join(', ')}. Send again to continue.`,
+        'fail',
+      );
+      break;
     case 'done':
       if (ev.noMatch) {
         addStatus('No @mention and no capability match — nothing dispatched.', '');

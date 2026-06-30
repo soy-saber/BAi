@@ -202,6 +202,57 @@ test('A2A: the hop cap stops a two-agent @-loop', async () => {
   });
 });
 
+test('A2A: the turn budget caps total work below the hop depth', async () => {
+  await withStore(async (store) => {
+    // A ping-pong that the hop cap alone would let run for many turns. With a
+    // generous maxHops but a tight maxTurns, the *total* budget stops it first.
+    const adapters = {
+      claude: fakeAdapter('claude', [
+        { type: 'text', agent: 'claude', text: 'ping @codex' },
+        { type: 'result', agent: 'claude', ok: true },
+      ]),
+      codex: fakeAdapter('codex', [
+        { type: 'text', agent: 'codex', text: 'ping @claude' },
+        { type: 'result', agent: 'codex', ok: true },
+      ]),
+    };
+    const orch = new Orchestrator(store, adapters, { maxHops: 99, maxTurns: 3 });
+    const thread = await store.create('test');
+
+    const events: string[] = [];
+    const result = await orch.dispatch(thread.id, '@claude start', (e) => {
+      if (e.kind === 'budget_exhausted') events.push(`budget:${e.ran}:${e.dropped.join(',')}`);
+    });
+    // Exactly maxTurns ran, then the budget stopped the chain.
+    assert.deepEqual(result.ran, ['claude', 'codex', 'claude']);
+    assert.deepEqual(events, ['budget:3:codex']);
+  });
+});
+
+test('A2A: a chain shorter than the budget finishes without a budget event', async () => {
+  await withStore(async (store) => {
+    const adapters = {
+      claude: fakeAdapter('claude', [
+        { type: 'text', agent: 'claude', text: 'done, @codex please review' },
+        { type: 'result', agent: 'claude', ok: true },
+      ]),
+      codex: fakeAdapter('codex', [
+        { type: 'text', agent: 'codex', text: 'looks good' },
+        { type: 'result', agent: 'codex', ok: true },
+      ]),
+    };
+    const orch = new Orchestrator(store, adapters, { maxTurns: 12 });
+    const thread = await store.create('test');
+
+    let budgetFired = false;
+    const result = await orch.dispatch(thread.id, '@claude build it', (e) => {
+      if (e.kind === 'budget_exhausted') budgetFired = true;
+    });
+    assert.deepEqual(result.ran, ['claude', 'codex']);
+    assert.equal(budgetFired, false);
+  });
+});
+
 test('emits no_tools when a tool-capable agent completes a turn calling no tools', async () => {
   await withStore(async (store) => {
     // claude is agent-mode by default; here it only talks, never calls a tool.
