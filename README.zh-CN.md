@@ -58,6 +58,7 @@ BAi 把彼此孤立的 AI 智能体命令行工具（Claude Code、Codex、Gemin
 - [x] **Stage 24** — 每轮计时 + token 统计：每轮展示耗时，CLI 报告时附 token 数和花费
 - [x] **Stage 25** — 可测试的 HTTP 层：路由函数导出并接收注入的依赖，无需真实 CLI 或工作区即可覆盖各端点
 - [x] **Stage 26** — A2A 交接的轮次预算：用 `maxTurns` 限制总扇出，而不只是链路深度，预算耗尽时发 `budget_exhausted` 事件
+- [x] **Stage 27** — A2A 防护旋钮可由操作者经 `BAI_MAX_HOPS` / `BAI_MAX_TURNS` 环境变量调节
 
 ## 快速开始
 
@@ -85,6 +86,11 @@ node dist/index.js send a1b2c3d4 "@codex review @file:src/server/app.js for bugs
 # 模型会自动降级为聊天模式，其余情况仍是有工具能力的智能体；若它跑完一轮一个
 # 工具都没调，BAi 会提示你用 BAI_CHAT_AGENTS=codex 把它降级。
 #   BAI_CODEX_MODEL=gpt-5.5 node dist/index.js serve
+
+# 给 A2A 交接设上限（一个智能体的回复里 @ 另一个，会排队一个后续轮次）。
+# BAI_MAX_HOPS 限制单条交接链的深度；BAI_MAX_TURNS 限制每次派发的总轮次，
+# 这样扇出就不会失控蔓延。两者都取正整数，其余输入一律回退到默认值（3 和 12）。
+#   BAI_MAX_HOPS=6 BAI_MAX_TURNS=20 node dist/index.js serve
 
 # 审查流水线 —— claude 审查，一个审查官把关，带回退链
 #（claude → codex，若 codex 连不上则回退到 opencode）：

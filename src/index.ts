@@ -17,7 +17,7 @@ import type { GameEvent } from './game/runner.js';
 import { render as renderBoard } from './game/tictactoe.js';
 import { gitDiff } from './git.js';
 import type { DispatchEvent } from './routing/orchestrator.js';
-import { Orchestrator } from './routing/orchestrator.js';
+import { Orchestrator, orchestratorEnvOptions } from './routing/orchestrator.js';
 import {
   auditPipeline,
   diffReviewPipeline,
@@ -174,7 +174,10 @@ async function main(): Promise<void> {
       const [threadId, ...words] = rest;
       const message = words.join(' ').trim();
       if (!threadId || !message) return fail(USAGE);
-      const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
+      const orch = new Orchestrator(store, ADAPTERS, {
+        memory: new MemoryStore(),
+        ...orchestratorEnvOptions(),
+      });
       console.log(`> ${message}`);
       const result = await orch.dispatch(threadId, message, render);
       if (result.noMatch) console.log('(no @mention and no capability match — nothing dispatched)');
@@ -186,7 +189,10 @@ async function main(): Promise<void> {
       if (!threadId || !target) {
         return fail('Usage: bai audit <threadId> "<file path or description to audit>"');
       }
-      const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
+      const orch = new Orchestrator(store, ADAPTERS, {
+        memory: new MemoryStore(),
+        ...orchestratorEnvOptions(),
+      });
       console.log(`> audit: ${target}`);
       const results = await runPipeline(orch, threadId, target, auditPipeline(), {
         onEvent: render,
@@ -209,7 +215,10 @@ async function main(): Promise<void> {
           'Usage: bai secaudit <threadId> "<target — describe the code, with @file: refs>"',
         );
       }
-      const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
+      const orch = new Orchestrator(store, ADAPTERS, {
+        memory: new MemoryStore(),
+        ...orchestratorEnvOptions(),
+      });
       console.log(`> security audit: ${target}`);
       const results = await runPipeline(orch, threadId, target, securityAuditPipeline(), {
         onEvent: render,
@@ -241,7 +250,10 @@ async function main(): Promise<void> {
         break;
       }
       const target = file ? `Changes to ${file}:\n\n${diff}` : diff;
-      const orch = new Orchestrator(store, ADAPTERS, { memory: new MemoryStore() });
+      const orch = new Orchestrator(store, ADAPTERS, {
+        memory: new MemoryStore(),
+        ...orchestratorEnvOptions(),
+      });
       console.log(`> review diff${file ? `: ${file}` : ' (working tree)'}`);
       const results = await runPipeline(orch, threadId, target, diffReviewPipeline(), {
         onEvent: render,

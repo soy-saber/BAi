@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AgentAdapter, RunOptions } from '../src/adapters/adapter.ts';
-import { Orchestrator } from '../src/routing/orchestrator.ts';
+import { Orchestrator, orchestratorEnvOptions } from '../src/routing/orchestrator.ts';
 import { ThreadStore } from '../src/store/thread-store.ts';
 import type { AgentMessage } from '../src/types.ts';
 
@@ -354,5 +354,57 @@ test('passes the CLI-reported usage through to turn_stats and the saved entry', 
     assert.deepEqual(captured, usage, 'turn_stats carries the adapter-reported usage verbatim');
     const saved = await store.get(thread.id);
     assert.deepEqual(saved?.entries[1]?.usage, usage, 'usage is persisted on the entry');
+  });
+});
+
+// ---- env-configurable A2A guards ------------------------------------------
+// orchestratorEnvOptions() reads BAI_MAX_HOPS / BAI_MAX_TURNS. We mutate the
+// process env per case and restore it after, so the tests don't leak state.
+
+/** Run fn with env[name] set to value (or deleted if undefined), then restore. */
+function withEnv(name: string, value: string | undefined, fn: () => void): void {
+  const had = Object.hasOwn(process.env, name);
+  const prev = process.env[name];
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+  try {
+    fn();
+  } finally {
+    if (had) process.env[name] = prev;
+    else delete process.env[name];
+  }
+}
+
+test('orchestratorEnvOptions: unset env yields an empty partial (defaults stand)', () => {
+  withEnv('BAI_MAX_HOPS', undefined, () => {
+    withEnv('BAI_MAX_TURNS', undefined, () => {
+      assert.deepEqual(orchestratorEnvOptions(), {});
+    });
+  });
+});
+
+test('orchestratorEnvOptions: valid positive integers are read through', () => {
+  withEnv('BAI_MAX_HOPS', '5', () => {
+    withEnv('BAI_MAX_TURNS', '20', () => {
+      assert.deepEqual(orchestratorEnvOptions(), { maxHops: 5, maxTurns: 20 });
+    });
+  });
+});
+
+test('orchestratorEnvOptions: invalid values are ignored, not coerced to 0', () => {
+  // Each of these must leave the key absent so the Orchestrator default applies,
+  // rather than clamping the guard to 0 (which would disable all handoffs).
+  for (const bad of ['0', '-3', 'abc', '2.5', '', '  ']) {
+    withEnv('BAI_MAX_HOPS', bad, () => {
+      assert.deepEqual(orchestratorEnvOptions(), {}, `"${bad}" should be ignored`);
+    });
+  }
+});
+
+test('orchestratorEnvOptions: one valid, one invalid — only the valid one is set', () => {
+  withEnv('BAI_MAX_HOPS', 'nope', () => {
+    withEnv('BAI_MAX_TURNS', '8', () => {
+      assert.deepEqual(orchestratorEnvOptions(), { maxTurns: 8 });
+    });
   });
 });

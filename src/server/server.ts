@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { buildRegistry } from '../adapters/registry.js';
 import { gitCommit, gitDiff, gitStage, gitStatus, gitUnstage } from '../git.js';
 import { IDENTITIES } from '../identity/identity.js';
-import { Orchestrator } from '../routing/orchestrator.js';
+import { Orchestrator, orchestratorEnvOptions } from '../routing/orchestrator.js';
 import { diffReviewPipeline, runPipeline, securityAuditPipeline } from '../routing/pipeline.js';
 import { MemoryStore } from '../store/memory-store.js';
 import { ThreadStore } from '../store/thread-store.js';
@@ -71,6 +71,7 @@ export function startServer(port = 3003): import('node:http').Server {
   const orch = new Orchestrator(store, ADAPTERS, {
     memory: new MemoryStore(),
     runOptions: { timeoutMs },
+    ...orchestratorEnvOptions(),
   });
 
   const server = createServer(async (req, res) => {

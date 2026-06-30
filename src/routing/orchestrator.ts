@@ -81,6 +81,31 @@ export interface OrchestratorOptions {
   autoRoute?: boolean;
 }
 
+/** Parse a positive-integer env var, or undefined if unset/invalid. */
+function positiveIntEnv(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+/**
+ * Read the operator-tunable A2A guards from the environment, in the same spirit
+ * as BAI_CODEX_MODEL / BAI_CHAT_AGENTS. Each is applied only when set to a valid
+ * positive integer; otherwise the Orchestrator's own default stands. Keys:
+ *   BAI_MAX_HOPS   — handoff chain depth   (default 3)
+ *   BAI_MAX_TURNS  — total turns per dispatch (default 12)
+ * Returned as a partial so callers can spread it over their own options.
+ */
+export function orchestratorEnvOptions(): Pick<OrchestratorOptions, 'maxHops' | 'maxTurns'> {
+  const maxHops = positiveIntEnv('BAI_MAX_HOPS');
+  const maxTurns = positiveIntEnv('BAI_MAX_TURNS');
+  return {
+    ...(maxHops !== undefined ? { maxHops } : {}),
+    ...(maxTurns !== undefined ? { maxTurns } : {}),
+  };
+}
+
 export class Orchestrator {
   private readonly runOptions: RunOptions;
   private readonly memory?: MemoryStore;

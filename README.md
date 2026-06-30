@@ -61,6 +61,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 24** — per-turn timing + token/cost stats, surfaced in the CLI and the UI
 - [x] **Stage 25** — make the HTTP layer testable: export `route`, inject deps, 12 endpoint tests
 - [x] **Stage 26** — a turn budget for A2A handoffs: bound total fan-out, not just chain depth
+- [x] **Stage 27** — make the A2A guards operator-tunable via `BAI_MAX_HOPS` / `BAI_MAX_TURNS`
 
 ## Quick Start
 
@@ -89,6 +90,12 @@ node dist/index.js send a1b2c3d4 "@codex review @file:src/server/app.js for bugs
 # stays a tool-capable agent otherwise; if it then runs a turn calling no tools,
 # BAi warns you to downgrade it with BAI_CHAT_AGENTS=codex.
 #   BAI_CODEX_MODEL=gpt-5.5 node dist/index.js serve
+
+# Bound A2A handoffs (an agent's reply @-mentioning another queues a follow-up
+# turn). BAI_MAX_HOPS caps a handoff chain's depth; BAI_MAX_TURNS caps the total
+# turns per dispatch, so a fan-out can't sprawl. Both take a positive integer;
+# anything else falls back to the defaults (3 and 12).
+#   BAI_MAX_HOPS=6 BAI_MAX_TURNS=20 node dist/index.js serve
 
 # Audit pipeline — claude audits, a reviewer gatekeeps, with a fallback chain
 # (claude → codex, falling back to opencode if codex can't be reached):
