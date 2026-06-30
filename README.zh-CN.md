@@ -60,6 +60,7 @@ BAi 把彼此孤立的 AI 智能体命令行工具（Claude Code、Codex、Gemin
 - [x] **Stage 26** — A2A 交接的轮次预算：用 `maxTurns` 限制总扇出，而不只是链路深度，预算耗尽时发 `budget_exhausted` 事件
 - [x] **Stage 27** — A2A 防护旋钮可由操作者经 `BAI_MAX_HOPS` / `BAI_MAX_TURNS` 环境变量调节
 - [x] **Stage 28** — 给 server 的流水线端点（`/audit`、`/review`）补上 NDJSON 流式测试覆盖
+- [x] **Stage 29** — 补齐 server 端点覆盖：`/api/agents`、`/api/git/diff`、`/api/git/unstage`
 
 ## 快速开始
 

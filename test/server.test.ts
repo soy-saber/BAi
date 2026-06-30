@@ -441,6 +441,100 @@ test('POST /api/threads/:id/review runs the pipeline over a dirty tree', {
   }
 });
 
+// ---- agents + remaining git endpoints --------------------------------------
+
+test('GET /api/agents lists the registered agents with their identity', async () => {
+  const { store, dir } = await tempStore();
+  try {
+    const deps: RouteDeps = { store, orch: new Orchestrator(store, {}) };
+    const res = await call(deps, 'GET', '/api/agents');
+    assert.equal(res.status, 200);
+    // The endpoint reads the module-level registry (claude/codex/opencode/gemini),
+    // not the injected orchestrator, so the set is stable. claude carries a full
+    // identity, so it's the safe anchor for the metadata-shape assertion.
+    const agents = res.json() as Array<{
+      id: string;
+      name: string;
+      role: string;
+      strengths: string[];
+    }>;
+    const claude = agents.find((a) => a.id === 'claude');
+    assert.ok(claude, 'expected claude in the agent list');
+    assert.equal(typeof claude?.name, 'string');
+    assert.equal(typeof claude?.role, 'string');
+    assert.ok(Array.isArray(claude?.strengths));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('GET /api/git/diff returns a unified diff for one changed file', {
+  skip: !gitAvailable(),
+}, async () => {
+  const { store, dir } = await tempStore();
+  const repo = makeRepo();
+  try {
+    // Commit a baseline, then edit it so the file has a real tracked diff.
+    writeFileSync(join(repo, 'a.txt'), 'one\n');
+    const run = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
+    run('add', 'a.txt');
+    run('commit', '-m', 'baseline');
+    writeFileSync(join(repo, 'a.txt'), 'one\ntwo\n');
+
+    const deps: RouteDeps = { store, orch: new Orchestrator(store, {}), gitCwd: repo };
+    const res = await call(deps, 'GET', '/api/git/diff?file=a.txt');
+    assert.equal(res.status, 200);
+    const body = res.json() as { file?: string; diff: string; untracked?: boolean };
+    assert.equal(body.file, 'a.txt');
+    assert.match(body.diff, /\+two/);
+    assert.notEqual(body.untracked, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('POST /api/git/unstage rejects a non-array files body (400)', async () => {
+  const { store, dir } = await tempStore();
+  try {
+    const deps: RouteDeps = { store, orch: new Orchestrator(store, {}) };
+    const res = await call(deps, 'POST', '/api/git/unstage', { files: 'a.txt' });
+    assert.equal(res.status, 400);
+    assert.match((res.json() as { error: string }).error, /files: string\[\] required/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('POST /api/git/unstage moves a staged file back out of the index', {
+  skip: !gitAvailable(),
+}, async () => {
+  const { store, dir } = await tempStore();
+  const repo = makeRepo();
+  try {
+    writeFileSync(join(repo, 'a.txt'), 'hello\n');
+    const deps: RouteDeps = { store, orch: new Orchestrator(store, {}), gitCwd: repo };
+
+    // Stage it, then unstage it: the file is still changed, just not staged.
+    const staged = await call(deps, 'POST', '/api/git/stage', { files: ['a.txt'] });
+    assert.equal((staged.json() as { ok: boolean }).ok, true);
+
+    const unstaged = await call(deps, 'POST', '/api/git/unstage', { files: ['a.txt'] });
+    assert.equal(unstaged.status, 200);
+    assert.equal((unstaged.json() as { ok: boolean }).ok, true);
+
+    // Still a changed file in the tree (untracked again), just no longer staged.
+    const status = await call(deps, 'GET', '/api/git/status');
+    const files = (status.json() as { files: Array<{ path: string; staged?: boolean }> }).files;
+    const entry = files.find((f) => f.path === 'a.txt');
+    assert.ok(entry, 'a.txt should still be a changed file after unstaging');
+    assert.notEqual(entry?.staged, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('unknown route returns 404', async () => {
   const { store, dir } = await tempStore();
   try {

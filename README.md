@@ -63,6 +63,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 26** — a turn budget for A2A handoffs: bound total fan-out, not just chain depth
 - [x] **Stage 27** — make the A2A guards operator-tunable via `BAI_MAX_HOPS` / `BAI_MAX_TURNS`
 - [x] **Stage 28** — cover the server's pipeline endpoints (`/audit`, `/review`) with NDJSON streaming tests
+- [x] **Stage 29** — round out server endpoint coverage: `/api/agents`, `/api/git/diff`, `/api/git/unstage`
 
 ## Quick Start
 
