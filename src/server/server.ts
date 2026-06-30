@@ -75,7 +75,7 @@ export function startServer(port = 3003): import('node:http').Server {
 
   const server = createServer(async (req, res) => {
     try {
-      await route(req, res, store, orch);
+      await route(req, res, { store, orch });
     } catch (err) {
       send(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
@@ -87,12 +87,25 @@ export function startServer(port = 3003): import('node:http').Server {
   return server;
 }
 
-async function route(
+/**
+ * Dependencies the router acts through. Injected so the routes are testable
+ * without a live CLI or the process's real working tree: `store`/`orch` take
+ * fakes, and `gitCwd` points the git ops at a throwaway repo. Defaults preserve
+ * production behavior (git acts on the process's own working directory).
+ */
+export interface RouteDeps {
+  store: ThreadStore;
+  orch: Orchestrator;
+  gitCwd?: string;
+}
+
+export async function route(
   req: import('node:http').IncomingMessage,
   res: import('node:http').ServerResponse,
-  store: ThreadStore,
-  orch: Orchestrator,
+  deps: RouteDeps,
 ): Promise<void> {
+  const { store, orch } = deps;
+  const gitCwd = deps.gitCwd ?? process.cwd();
   const url = new URL(req.url ?? '/', 'http://localhost');
   const path = url.pathname;
   const method = req.method ?? 'GET';
@@ -130,7 +143,7 @@ async function route(
   if (method === 'GET' && path === '/api/git/status') {
     // Read-only: what has changed in the working tree right now. Lets the UI
     // show "what did the agents touch" without the operator leaving the page.
-    const status = await gitStatus();
+    const status = await gitStatus(gitCwd);
     return send(res, 200, status);
   }
 
@@ -139,7 +152,7 @@ async function route(
     // The file is passed to `git diff -- <file>` as a separate argv after `--`,
     // so it can't be read as a flag; git also confines it to the repo.
     const file = url.searchParams.get('file') ?? undefined;
-    const diff = await gitDiff(file);
+    const diff = await gitDiff(file, { cwd: gitCwd });
     return send(res, 200, diff);
   }
 
@@ -152,7 +165,7 @@ async function route(
     if (!Array.isArray(files) || files.some((f) => typeof f !== 'string')) {
       return send(res, 400, { error: 'files: string[] required' });
     }
-    return send(res, 200, await gitStage(files as string[]));
+    return send(res, 200, await gitStage(files as string[], gitCwd));
   }
 
   if (method === 'POST' && path === '/api/git/unstage') {
@@ -160,7 +173,7 @@ async function route(
     if (!Array.isArray(files) || files.some((f) => typeof f !== 'string')) {
       return send(res, 400, { error: 'files: string[] required' });
     }
-    return send(res, 200, await gitUnstage(files as string[]));
+    return send(res, 200, await gitUnstage(files as string[], gitCwd));
   }
 
   if (method === 'POST' && path === '/api/git/commit') {
@@ -168,7 +181,7 @@ async function route(
     if (typeof message !== 'string' || !message.trim()) {
       return send(res, 400, { error: 'message required' });
     }
-    return send(res, 200, await gitCommit(message.trim()));
+    return send(res, 200, await gitCommit(message.trim(), gitCwd));
   }
 
   if (method === 'GET' && path === '/api/threads') {
@@ -258,7 +271,7 @@ async function route(
     // the prompt so a chat-only reviewer sees the change inline. Streams the
     // same NDJSON dispatch + pipeline events as /audit.
     const file = url.searchParams.get('file') ?? undefined;
-    const { diff, untracked } = await gitDiff(file);
+    const { diff, untracked } = await gitDiff(file, { cwd: gitCwd });
     if (untracked) {
       return send(res, 400, { error: `${file} is untracked — stage a baseline first` });
     }

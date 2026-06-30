@@ -56,6 +56,7 @@ BAi 把彼此孤立的 AI 智能体命令行工具（Claude Code、Codex、Gemin
 - [x] **Stage 22** — 从 UI 写 git：暂存/取消暂存文件、提交，全部需显式点击触发
 - [x] **Stage 23** — diff 审查流水线：审查员评判工作区 diff，把关官给出 ship/hold
 - [x] **Stage 24** — 每轮计时 + token 统计：每轮展示耗时，CLI 报告时附 token 数和花费
+- [x] **Stage 25** — 可测试的 HTTP 层：路由函数导出并接收注入的依赖，无需真实 CLI 或工作区即可覆盖各端点
 
 ## 快速开始
 
