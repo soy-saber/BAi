@@ -19,7 +19,6 @@ import { gitDiff } from './git.js';
 import type { DispatchEvent } from './routing/orchestrator.js';
 import { Orchestrator, orchestratorEnvOptions } from './routing/orchestrator.js';
 import {
-  auditPipeline,
   diffReviewPipeline,
   type PipelineEvent,
   runPipeline,
@@ -138,8 +137,7 @@ const USAGE = `Usage:
   bai remember <decision|lesson> <agent> "<text>"   record team memory
   bai memory ["<query>"]            recall memory (most recent if no query)
   bai retrospect <agent>            distill recent memory into insights
-  bai audit <threadId> "<target>"   run the audit pipeline (claude → codex/opencode gatekeep)
-  bai secaudit <threadId> "<target>"   security audit: claude finds vuln flows → codex/opencode verifies each
+  bai audit <threadId> "<target>"   security audit: claude finds vuln flows → codex/opencode independently verifies each
   bai review <threadId> [file]      review the working-tree diff (claude reviews → codex/opencode gatekeeps ship/hold)
   bai play <agentX> <agentO>        play tic-tac-toe: two agents, a deterministic referee
   bai serve [port]                  start the web UI (default http://localhost:3003)`;
@@ -184,35 +182,15 @@ async function main(): Promise<void> {
       break;
     }
     case 'audit': {
-      const [threadId, ...words] = rest;
-      const target = words.join(' ').trim();
-      if (!threadId || !target) {
-        return fail('Usage: bai audit <threadId> "<file path or description to audit>"');
-      }
-      const orch = new Orchestrator(store, ADAPTERS, {
-        memory: new MemoryStore(),
-        ...orchestratorEnvOptions(),
-      });
-      console.log(`> audit: ${target}`);
-      const results = await runPipeline(orch, threadId, target, auditPipeline(), {
-        onEvent: render,
-        onPipelineEvent: renderPipeline,
-      });
-      const last = results[results.length - 1];
-      if (!last?.ok) {
-        console.error('\naudit pipeline did not complete (a stage exhausted its agents).');
-        process.exitCode = 1;
-      } else {
-        console.log('\naudit pipeline complete.');
-      }
-      break;
-    }
-    case 'secaudit': {
+      // Security audit as an independent double-check: the auditor finds vuln
+      // flows, the verifier re-traces each one itself (not "is the report
+      // sound" — auditing is already a review, so the second pass is a second
+      // independent trace). See ADR 0033.
       const [threadId, ...words] = rest;
       const target = words.join(' ').trim();
       if (!threadId || !target) {
         return fail(
-          'Usage: bai secaudit <threadId> "<target — describe the code, with @file: refs>"',
+          'Usage: bai audit <threadId> "<target — describe the code, with @file: refs>"',
         );
       }
       const orch = new Orchestrator(store, ADAPTERS, {

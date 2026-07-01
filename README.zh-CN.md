@@ -62,6 +62,7 @@ BAi 把彼此孤立的 AI 智能体命令行工具（Claude Code、Codex、Gemin
 - [x] **Stage 28** — 给 server 的流水线端点（`/audit`、`/review`）补上 NDJSON 流式测试覆盖
 - [x] **Stage 29** — 补齐 server 端点覆盖：`/api/agents`、`/api/git/diff`、`/api/git/unstage`
 - [x] **Stage 30** — 给记忆召回与能力路由共用的 `tokenize` 原语补测试，钉死"什么算有意义的词"
+- [x] **Stage 31** — 收敛为两条流水线（diff 审查 + 独立复核式安全审计），移除"监督报告"那条
 
 ## 快速开始
 

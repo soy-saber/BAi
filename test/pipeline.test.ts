@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AgentAdapter, RunOptions } from '../src/adapters/adapter.ts';
 import { Orchestrator } from '../src/routing/orchestrator.ts';
-import { auditPipeline, runPipeline, type Stage } from '../src/routing/pipeline.ts';
+import {
+  diffReviewPipeline,
+  runPipeline,
+  securityAuditPipeline,
+  type Stage,
+} from '../src/routing/pipeline.ts';
 import { ThreadStore } from '../src/store/thread-store.ts';
 import type { AgentMessage } from '../src/types.ts';
 
@@ -164,19 +169,35 @@ test('a negative verdict is still a success — we fall back on broken agents, n
   });
 });
 
-test('auditPipeline wires claude → codex with an opencode fallback', () => {
-  const stages = auditPipeline();
+test('securityAuditPipeline wires find (claude) → verify (codex) with an opencode fallback', () => {
+  const stages = securityAuditPipeline();
   assert.equal(stages.length, 2);
-  assert.equal(stages[0]?.name, 'audit');
+  assert.equal(stages[0]?.name, 'find');
+  assert.equal(stages[0]?.primary, 'claude');
+  assert.equal(stages[1]?.name, 'verify');
+  assert.equal(stages[1]?.primary, 'codex');
+  assert.deepEqual(stages[1]?.fallbacks, ['opencode']);
+  // The verify prompt embeds the first-pass audit it independently re-checks.
+  const prompt = stages[1]?.buildPrompt('TARGET', [
+    { stage: 'find', agent: 'claude', text: 'SQLi at db.ts:10', ok: true, failedOver: [] },
+  ]);
+  assert.match(prompt ?? '', /SQLi at db\.ts:10/);
+  assert.match(prompt ?? '', /VERDICT/);
+});
+
+test('diffReviewPipeline wires review (claude) → gatekeep (codex) with an opencode fallback', () => {
+  const stages = diffReviewPipeline();
+  assert.equal(stages.length, 2);
+  assert.equal(stages[0]?.name, 'review');
   assert.equal(stages[0]?.primary, 'claude');
   assert.equal(stages[1]?.name, 'gatekeep');
   assert.equal(stages[1]?.primary, 'codex');
   assert.deepEqual(stages[1]?.fallbacks, ['opencode']);
-  // The gatekeep prompt embeds the audit text it is reviewing.
-  const prompt = stages[1]?.buildPrompt('TARGET', [
-    { stage: 'audit', agent: 'claude', text: 'found a bug', ok: true, failedOver: [] },
+  // The gatekeep prompt embeds the reviewer's review and asks for ship/hold.
+  const prompt = stages[1]?.buildPrompt('DIFF', [
+    { stage: 'review', agent: 'claude', text: 'looks landable', ok: true, failedOver: [] },
   ]);
-  assert.match(prompt ?? '', /found a bug/);
+  assert.match(prompt ?? '', /looks landable/);
   assert.match(prompt ?? '', /VERDICT/);
 });
 

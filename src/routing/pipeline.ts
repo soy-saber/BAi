@@ -12,10 +12,13 @@
  * and judge it). The whole thing runs on Orchestrator.runOne, so stages inherit
  * identity, memory, streaming, timeout/cancel, and transcript persistence.
  *
- * The audit pipeline (`auditPipeline`) is the motivating case:
- *   1. audit     — Claude audits the code
- *   2. gatekeep  — a reviewer checks Claude's audit; primary codex (GPT),
- *                  falling back to opencode if codex can't be reached
+ * Two pipelines are built on this: `securityAuditPipeline` (find vulnerabilities
+ * → independently verify each flow) and `diffReviewPipeline` (review a diff →
+ * gatekeep ship/hold). Both are two-pass, but note the shape: a second agent
+ * that re-does the work independently (verify) is a different collaboration than
+ * one that judges the first agent's output (gatekeep). Auditing is itself a
+ * review, so it wants the independent second pass, not a supervise-the-report
+ * one — see ADR 0033.
  */
 
 import type { OnEvent, Orchestrator } from './orchestrator.js';
@@ -134,13 +137,6 @@ export async function runPipeline(
 }
 
 /**
- * The audit pipeline: Claude audits, then a gatekeeper (GPT/codex, falling back
- * to opencode) reviews that audit.
- *
- * Agent ids are parameterized so this isn't hard-wired to specific adapters,
- * but the defaults match the requested flow: claude → codex → opencode.
- */
-/**
  * The security-audit pipeline: a two-pass vulnerability review.
  *
  *   1. find    — the auditor (Claude, tool-capable: reads files itself) hunts
@@ -151,10 +147,11 @@ export async function runPipeline(
  *                vulnerability's WHOLE flow actually exists and is exploitable,
  *                marking each confirmed / false-positive / uncertain.
  *
- * This is the sharper sibling of `auditPipeline`: instead of a generic "is this
- * audit sound" gatekeep, the second stage validates the vulnerability flow
- * itself — the difference between "the report looks reasonable" and "I traced
- * it and the bug is real / it's a false positive."
+ * The verify pass is deliberately NOT a "is this audit sound" gatekeep: the
+ * second stage re-validates the vulnerability flow itself — the difference
+ * between "the report looks reasonable" and "I traced it and the bug is real /
+ * it's a false positive." Auditing is already a review, so the sharper pass is a
+ * second independent trace, not a supervisor reading the first one's notes.
  *
  * Pair it with `@file:` references in the target: a chat-only verifier (e.g. a
  * codex CLI bound to a tool-less model) gets those files inlined automatically
@@ -310,51 +307,6 @@ export function diffReviewPipeline(
           '',
           `## The reviewer’s review (by ${review?.agent ?? 'the reviewer'})`,
           review?.text ?? '(no review produced)',
-        ].join('\n');
-      },
-    },
-  ];
-}
-
-export function auditPipeline(
-  agents: { auditor?: string; gatekeeper?: string; gatekeeperFallback?: string } = {},
-): Stage[] {
-  const auditor = agents.auditor ?? 'claude';
-  const gatekeeper = agents.gatekeeper ?? 'codex';
-  const gatekeeperFallback = agents.gatekeeperFallback ?? 'opencode';
-
-  return [
-    {
-      name: 'audit',
-      primary: auditor,
-      buildPrompt: (task) =>
-        [
-          'You are performing a CODE AUDIT. Review the target below for bugs, security',
-          'issues, and correctness problems. Be specific: cite locations and explain the',
-          'risk. List findings as a numbered list, most severe first. If you find nothing',
-          'serious, say so plainly.',
-          '',
-          `## Audit target`,
-          task,
-        ].join('\n'),
-    },
-    {
-      name: 'gatekeep',
-      primary: gatekeeper,
-      fallbacks: [gatekeeperFallback],
-      buildPrompt: (task, prior) => {
-        const audit = prior.find((r) => r.stage === 'audit');
-        return [
-          'You are the GATEKEEPER reviewing another agent’s code audit. Your job is to',
-          'check the audit itself: are the findings correct, are any overstated or wrong,',
-          'and did it MISS anything important? Do not just agree. End with a verdict line:',
-          '`VERDICT: pass` if the audit is sound, or `VERDICT: revise` with what to fix.',
-          '',
-          `## Original audit target`,
-          task,
-          '',
-          `## The audit to review (by ${audit?.agent ?? 'the auditor'})`,
-          audit?.text ?? '(no audit produced)',
         ].join('\n');
       },
     },

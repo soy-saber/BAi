@@ -65,6 +65,7 @@ with its own decision record in [`docs/decisions/`](docs/decisions/)):
 - [x] **Stage 28** — cover the server's pipeline endpoints (`/audit`, `/review`) with NDJSON streaming tests
 - [x] **Stage 29** — round out server endpoint coverage: `/api/agents`, `/api/git/diff`, `/api/git/unstage`
 - [x] **Stage 30** — test the shared `tokenize` primitive that memory recall and capability routing both build on
+- [x] **Stage 31** — converge on two pipelines (diff-review + independent-verify audit); drop the supervise-the-report one
 
 ## Quick Start
 
